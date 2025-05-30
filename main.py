@@ -28,6 +28,9 @@ from pydantic import BaseModel
 import ast
 import re
 import importlib
+import openai
+import httpx
+from config import config
 
 # Configure logging
 logging.basicConfig(
@@ -56,23 +59,72 @@ class ResearcherAgent:
         self.name = "Researcher"
         self.description = "Researches best practices and patterns for Python applications"
         self.capabilities = ["research", "analysis"]
+        self.llm_config = config.researcher_llm
+        # Initialize OpenAI client only if not using local endpoint
+        if not self.llm_config.is_local:
+            self.client = openai.OpenAI(api_key=self.llm_config.api_key)
+
+    async def call_llm_api(self, prompt: str) -> str:
+        """Call the LLM API to perform research."""
+        try:
+            if self.llm_config.is_local:
+                # Use httpx for local endpoints
+                async with httpx.AsyncClient(timeout=self.llm_config.timeout) as client:
+                    response = await client.post(
+                        self.llm_config.endpoint,
+                        json={
+                            "model": self.llm_config.model,
+                            "messages": [
+                                {"role": "system", "content": "You are a Python code research assistant. Provide detailed, structured research about Python best practices and patterns."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            "temperature": self.llm_config.temperature,
+                            "max_tokens": self.llm_config.max_tokens
+                        },
+                        headers=self.llm_config.headers
+                    )
+                    response.raise_for_status()
+                    return response.json()["choices"][0]["message"]["content"]
+            else:
+                # Use OpenAI client for cloud endpoints
+                response = self.client.chat.completions.create(
+                    model=self.llm_config.model,
+                    messages=[
+                        {"role": "system", "content": "You are a Python code research assistant. Provide detailed, structured research about Python best practices and patterns."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=self.llm_config.temperature,
+                    max_tokens=self.llm_config.max_tokens
+                )
+                return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Error calling LLM API: {str(e)}")
+            raise
 
     async def process_message(self, message: str) -> str:
         logger.info(f"Researcher processing message: {message}")
-        research_results = {
-            "best_practices": [
-                "Use type hints",
-                "Follow PEP 8 guidelines",
-                "Implement proper error handling",
-                "Write unit tests"
-            ],
-            "patterns": [
-                "MVC pattern for web applications",
-                "Repository pattern for data access",
-                "Factory pattern for object creation"
-            ]
-        }
-        return str(research_results)
+        
+        # Create a research prompt for the LLM
+        research_prompt = f"""
+        Please research and provide best practices and patterns for implementing the following Python code requirement:
+        {message}
+        
+        Focus on:
+        1. Best practices for this type of code
+        2. Common patterns that could be applied
+        3. Potential pitfalls to avoid
+        4. Recommended approaches
+        
+        Return the results in a structured format.
+        """
+        
+        try:
+            # Get research results from LLM
+            research_results = await self.call_llm_api(research_prompt)
+            return research_results
+        except Exception as e:
+            logger.error(f"Error in research process: {str(e)}")
+            return f"Error during research: {str(e)}"
 
 def extract_code_block(generated_code: str) -> tuple[str, str]:
     """Extracts code block and identifies language from generated code."""
@@ -175,8 +227,50 @@ def check_module_dependencies(code: str) -> tuple[bool, List[str]]:
 
 class WriterAgent:
     def __init__(self):
-        self.max_retries = 3
-        self.current_retry = 0
+        self.name = "Writer"
+        self.description = "Generates Python code based on requirements and research"
+        self.capabilities = ["code_generation", "validation"]
+        self.llm_config = config.writer_llm
+        # Initialize OpenAI client only if not using local endpoint
+        if not self.llm_config.is_local:
+            self.client = openai.OpenAI(api_key=self.llm_config.api_key)
+
+    async def call_llm_api(self, prompt: str) -> str:
+        """Call the LLM API to generate code."""
+        try:
+            if self.llm_config.is_local:
+                # Use httpx for local endpoints
+                async with httpx.AsyncClient(timeout=self.llm_config.timeout) as client:
+                    response = await client.post(
+                        self.llm_config.endpoint,
+                        json={
+                            "model": self.llm_config.model,
+                            "messages": [
+                                {"role": "system", "content": "You are a Python code generation assistant. Generate clean, efficient, and well-documented Python code."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            "temperature": self.llm_config.temperature,
+                            "max_tokens": self.llm_config.max_tokens
+                        },
+                        headers=self.llm_config.headers
+                    )
+                    response.raise_for_status()
+                    return response.json()["choices"][0]["message"]["content"]
+            else:
+                # Use OpenAI client for cloud endpoints
+                response = self.client.chat.completions.create(
+                    model=self.llm_config.model,
+                    messages=[
+                        {"role": "system", "content": "You are a Python code generation assistant. Generate clean, efficient, and well-documented Python code."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=self.llm_config.temperature,
+                    max_tokens=self.llm_config.max_tokens
+                )
+                return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Error calling LLM API: {str(e)}")
+            raise
 
     def validate_code_safety(self, code: str) -> tuple[bool, str]:
         """Validates if the code is safe to run."""
@@ -207,56 +301,57 @@ class WriterAgent:
         except Exception as e:
             return False, f"Validation error: {str(e)}"
 
-    def validate_code_requirements(self, code: str, requirements: str) -> tuple[bool, str]:
-        """Validates if the code meets the specified requirements."""
+    async def validate_code_requirements(self, code: str, requirements: str) -> tuple[bool, str]:
+        """Validates if the code meets the specified requirements using LLM."""
         try:
-            # Create a prompt for the LLM to validate requirements
+            # Create a validation prompt for the LLM
             validation_prompt = f"""
-            Requirements: {requirements}
+            Please validate if the following Python code meets these requirements:
+            
+            Requirements:
+            {requirements}
             
             Code to validate:
             ```python
             {code}
             ```
             
-            Does this code fulfill all requirements? Respond with True or False and explain why.
+            Analyze if the code:
+            1. Fulfills all requirements
+            2. Follows best practices
+            3. Is properly structured
+            4. Has appropriate error handling
+            
+            Return a validation result with explanation.
             """
             
-            # Use the LLM to validate (simplified version - you'd need to implement actual LLM call)
-            # For now, we'll return a placeholder response
-            return True, "Code meets requirements"
+            # Get validation from LLM
+            validation_result = await self.call_llm_api(validation_prompt)
+            return True, validation_result
         except Exception as e:
             return False, f"Validation error: {str(e)}"
 
     async def process_message(self, message: str) -> str:
         """Process the message and generate code with safety checks."""
         try:
-            # Extract code generation requirements
-            requirements = message.lower()
+            # Create a code generation prompt for the LLM
+            generation_prompt = f"""
+            Please generate a Python script that meets the following requirements:
+            {message}
             
-            # Generate initial code
-            if "hello world" in requirements:
-                code = """def main():
-    print("Hello, World!")
-
-if __name__ == "__main__":
-    main()"""
-            elif "hi there" in requirements:
-                code = """def main():
-    for i in range(10):
-        print("Hi there")
-    print("finito, bro")
-
-if __name__ == "__main__":
-    main()"""
-            else:
-                # For other requests, you'd implement your code generation logic here
-                code = f"""def main():
-    print("Generated code for: {message}")
-
-if __name__ == "__main__":
-    main()"""
-
+            The code should:
+            1. Be safe to run
+            2. Follow Python best practices
+            3. Include proper error handling
+            4. Be well-documented
+            5. Include a main guard
+            
+            Return only the Python code, no explanations.
+            """
+            
+            # Generate code using LLM
+            code = await self.call_llm_api(generation_prompt)
+            
             # Extract code block and identify language
             extracted_code, detected_language = extract_code_block(code)
             identified_language = identify_language(extracted_code)
@@ -275,8 +370,8 @@ if __name__ == "__main__":
             if not is_safe:
                 return f"Error: {safety_message}"
 
-            # Validate against requirements
-            meets_requirements, requirement_message = self.validate_code_requirements(extracted_code, requirements)
+            # Validate against requirements using LLM
+            meets_requirements, requirement_message = await self.validate_code_requirements(extracted_code, message)
             if not meets_requirements:
                 return f"Error: {requirement_message}"
 
