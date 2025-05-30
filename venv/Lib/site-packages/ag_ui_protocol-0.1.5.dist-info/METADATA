@@ -1,0 +1,21 @@
+Metadata-Version: 2.1
+Name: ag-ui-protocol
+Version: 0.1.5
+Summary: 
+Author: Markus Ecker
+Author-email: markus.ecker@gmail.com
+Requires-Python: >=3.9,<4.0
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Requires-Dist: pydantic (>=2.11.2,<3.0.0)
+Description-Content-Type: text/markdown
+
+# Agent User Interaction Protocol Documentation
+
+The Python SDK for the [Agent User Interaction Protocol](https://ag-ui.com).
+
+For more information visit the [official documentation](https://docs.ag-ui.com/).
+

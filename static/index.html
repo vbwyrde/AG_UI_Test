@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AG-UI Test</title>
+    <!-- Add highlight.js for code syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- Add marked.js for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #chat-container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-bottom: 20px;
+            height: 400px;
+            overflow-y: auto;
+        }
+        #message-input {
+            width: 70%;
+            padding: 10px;
+        }
+        #send-button {
+            padding: 10px 20px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            margin-left: 20%;
+        }
+        .assistant-message {
+            background-color: #f5f5f5;
+            margin-right: 20%;
+        }
+        /* Add styles for code blocks */
+        .assistant-message pre {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 1em;
+            margin: 1em 0;
+            overflow-x: auto;
+        }
+        .assistant-message code {
+            font-family: 'Courier New', Courier, monospace;
+        }
+        #debug-panel {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .debug-message {
+            font-family: monospace;
+            font-size: 12px;
+            margin: 2px 0;
+            white-space: pre-wrap;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>AG-UI Test</h1>
+    <div id="chat-container"></div>
+    <div>
+        <input type="text" id="message-input" placeholder="Type your message...">
+        <button id="send-button">Send</button>
+    </div>
+    <div id="debug-panel"></div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const debugPanel = document.getElementById('debug-panel');
+        let retryCount = 0;
+        const MAX_RETRIES = 3;
+
+        // Configure marked options
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    return hljs.highlight(code, { language: lang }).value;
+                }
+                return hljs.highlightAuto(code).value;
+            },
+            breaks: true
+        });
+
+        function logDebug(message, isError = false) {
+            const timestamp = new Date().toISOString();
+            const debugMessage = document.createElement('div');
+            debugMessage.className = `debug-message ${isError ? 'error' : ''}`;
+            debugMessage.textContent = `${timestamp}: ${message}`;
+            debugPanel.appendChild(debugMessage);
+            debugPanel.scrollTop = debugPanel.scrollHeight;
+        }
+
+        function addMessage(content, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'assistant-message'}`;
+            
+            if (isUser) {
+                messageDiv.textContent = content;
+            } else {
+                // Parse markdown for assistant messages
+                messageDiv.innerHTML = marked.parse(content);
+                // Apply syntax highlighting to code blocks
+                messageDiv.querySelectorAll('pre code').forEach((block) => {
+                    hljs.highlightElement(block);
+                });
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            // Clear input and add user message to chat
+            messageInput.value = '';
+            addMessage(message, true);
+
+            try {
+                logDebug(`Sending message: ${message}`);
+                await processMessage(message);
+            } catch (error) {
+                logDebug(`Error: ${error.message}`, true);
+                if (error.stack) {
+                    logDebug(`Stack trace: ${error.stack}`, true);
+                }
+                addMessage("Sorry, I encountered an error while processing your message. Please try again.");
+            }
+        }
+
+        async function processMessage(message) {
+            logDebug('Making request to /awp endpoint');
+            
+            const response = await fetch('/awp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive'
+                },
+                body: JSON.stringify({
+                    thread_id: crypto.randomUUID(),
+                    run_id: crypto.randomUUID(),
+                    state: {},
+                    messages: [{
+                        id: crypto.randomUUID(),
+                        role: "user",
+                        content: message
+                    }],
+                    tools: [],
+                    context: [],
+                    forwardedProps: {}
+                })
+            });
+
+            logDebug(`Response status: ${response.status}`);
+            logDebug(`Response headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                logDebug(`Error response: ${errorText}`, true);
+                throw new Error(`Server responded with status ${response.status}: ${errorText}`);
+            }
+
+            logDebug('Starting to read response stream');
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let currentMessage = '';
+
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        logDebug('Stream complete');
+                        break;
+                    }
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    logDebug(`Received chunk (${chunk.length} bytes): ${chunk}`);
+                    buffer += chunk;
+
+                    // Process complete events
+                    const events = buffer.split('\n\n');
+                    buffer = events.pop() || ''; // Keep the last incomplete event in the buffer
+
+                    for (const event of events) {
+                        if (!event.trim()) continue;
+                        
+                        try {
+                            const lines = event.split('\n');
+                            for (const line of lines) {
+                                if (line.startsWith('data: ')) {
+                                    const jsonStr = line.slice(6);
+                                    logDebug(`Raw event data: ${jsonStr}`);
+                                    
+                                    const eventData = JSON.parse(jsonStr);
+                                    logDebug(`Parsed event: ${JSON.stringify(eventData)}`);
+
+                                    if (eventData.type === 'TEXT_MESSAGE_CONTENT') {
+                                        currentMessage += eventData.delta;
+                                        // Update the last assistant message or create a new one
+                                        const lastMessage = chatContainer.lastElementChild;
+                                        if (lastMessage && lastMessage.classList.contains('assistant-message')) {
+                                            lastMessage.innerHTML = marked.parse(currentMessage);
+                                            lastMessage.querySelectorAll('pre code').forEach((block) => {
+                                                hljs.highlightElement(block);
+                                            });
+                                        } else {
+                                            addMessage(currentMessage);
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (parseError) {
+                            logDebug(`Error parsing event: ${parseError.message}`, true);
+                            if (parseError.stack) {
+                                logDebug(`Stack trace: ${parseError.stack}`, true);
+                            }
+                        }
+                    }
+                }
+            } catch (streamError) {
+                logDebug(`Stream error: ${streamError.message}`, true);
+                if (streamError.stack) {
+                    logDebug(`Stack trace: ${streamError.stack}`, true);
+                }
+                
+                if (retryCount < MAX_RETRIES) {
+                    retryCount++;
+                    const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
+                    logDebug(`Retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return processMessage(message);
+                }
+                throw streamError;
+            } finally {
+                retryCount = 0; // Reset retry count on success or final failure
+            }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html> 
