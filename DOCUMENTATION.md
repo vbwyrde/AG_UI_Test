@@ -1,7 +1,7 @@
 # AG-UI Test Application Documentation
 
 ## Overview
-This application implements the Agent User Interaction Protocol (AG-UI) for generating Python scripts. It features a multi-agent system with robust code generation, safety validation, and language detection capabilities.
+This application implements the Agent User Interaction Protocol (AG-UI) for generating Python scripts. It features a multi-agent system with robust code generation, safety validation, and language detection capabilities. Test.
 
 ## System Components
 
