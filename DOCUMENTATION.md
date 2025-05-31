@@ -6,6 +6,78 @@ of using this code to learn how AG_UI fits into the Agent Architecture.  The doc
 is the actual output, as that served as my study guide once the code was generated.  In this way
 I was able to quickly use this simple prototype to understand how AG_UI works.
 
+## AG_UI Protocol Overview
+The Agent User Interaction (AG_UI) Protocol is a standardized way for agents to communicate with users through a structured event system. This application implements the AG_UI protocol to provide real-time, streaming interactions between the agent system and the user interface.
+
+### Core Components
+1. **Event System**
+   - Uses Server-Sent Events (SSE) for real-time communication
+   - Implements a structured event hierarchy
+   - Supports streaming responses with proper event sequencing
+
+2. **Event Types**
+   - `RUN_STARTED`: Signals the beginning of an agent run
+   - `RUN_FINISHED`: Signals the completion of an agent run
+   - `TEXT_MESSAGE_START`: Indicates the start of a text message
+   - `TEXT_MESSAGE_CONTENT`: Contains the actual message content
+   - `TEXT_MESSAGE_END`: Signals the end of a text message
+   - `RUN_ERROR`: Handles error conditions during execution
+
+3. **Message Flow**
+   ```mermaid
+   sequenceDiagram
+       participant U as User
+       participant F as Frontend
+       participant S as Server
+       participant A as AG_UI Protocol
+       participant G as Agent System
+
+       U->>F: Send Request
+       F->>S: POST /awp
+       S->>A: Initialize Event Stream
+       A->>G: Process Request
+       G-->>A: Generate Events
+       A-->>S: Stream Events
+       S-->>F: SSE Response
+       F-->>U: Update UI
+   ```
+
+4. **Protocol Implementation**
+   - Uses FastAPI for the web server
+   - Implements streaming responses using `StreamingResponse`
+   - Handles event formatting through `EventEncoder`
+   - Manages message IDs for tracking conversations
+   - Provides error handling and recovery mechanisms
+
+5. **Key Features**
+   - Real-time streaming of agent responses
+   - Structured event-based communication
+   - Support for multiple message types
+   - Error handling and recovery
+   - Thread and run tracking
+   - State management
+
+6. **Integration Points**
+   - Frontend: Receives and processes SSE events
+   - Backend: Generates and streams events
+   - Agent System: Produces content for events
+   - Error Handling: Manages and reports issues
+
+### Event Processing Flow
+1. User request received
+2. Generate unique message ID
+3. Initialize event stream
+4. Process request through agent system
+5. Stream events in real-time
+6. Handle completion or errors
+7. Close event stream
+
+### Error Handling
+- Graceful error recovery
+- Error event propagation
+- Stream maintenance during errors
+- User feedback for issues
+
 ## Overview
 This application implements the Agent User Interaction Protocol (AG-UI) for generating Python scripts. It features a multi-agent system with robust code generation, safety validation, and language detection capabilities.
 
