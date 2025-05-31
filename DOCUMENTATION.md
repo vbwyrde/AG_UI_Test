@@ -1,5 +1,11 @@
 # AG-UI Test Application Documentation
 
+## Purpose
+This application was created via pure vibe-coding using Cursor.  I created it with the intention
+of using this code to learn how AG_UI fits into the Agent Architecture.  The documentation.md 
+is the actual output, as that served as my study guide once the code was generated.  In this way
+I was able to quickly use this simple prototype to understand how AG_UI works.
+
 ## Overview
 This application implements the Agent User Interaction Protocol (AG-UI) for generating Python scripts. It features a multi-agent system with robust code generation, safety validation, and language detection capabilities.
 
