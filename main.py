@@ -275,8 +275,7 @@ class VBValidator(CodeValidator):
             # Check for basic VB.NET syntax patterns
             required_patterns = [
                 r'Public\s+Class',
-                r'End\s+Class',
-                r'MessageBox\.Show'
+                r'End\s+Class'
             ]
             
             for pattern in required_patterns:
@@ -487,10 +486,11 @@ The code has been validated for safety and meets all requirements."""
 
 Requirements:
 1. Use proper VB.NET syntax and conventions
-2. Include error handling for null or empty text
-3. Use MessageBox.Show with OK button only
-4. Follow VB.NET naming conventions
-5. Include XML documentation comments
+2. Include appropriate error handling
+3. Follow VB.NET naming conventions
+4. Include XML documentation comments
+5. Use appropriate UI controls or methods based on the requirements
+6. Ensure the code is safe and follows best practices
 
 Return only the code, no explanations."""
 
