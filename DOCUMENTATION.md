@@ -129,7 +129,7 @@ The Agent User Interaction (AG_UI) Protocol is a standardized way for agents to 
 - Safe handling of concurrent operations
 
 ## Overview
-This application implements the Agent User Interaction Protocol (AG-UI) for generating Python scripts. It features a multi-agent system with robust code generation, safety validation, and language detection capabilities.
+This application implements the Agent User Interaction Protocol (AG-UI) for generating code in multiple programming languages. It features a multi-agent system with robust code generation, safety validation, and language detection capabilities.
 
 ## System Components
 
@@ -179,6 +179,11 @@ graph TD
 - **Multi-line Support**: Preserves code formatting and indentation
 - **Main Guard**: Includes `if __name__ == "__main__":` pattern
 - **Error Handling**: Comprehensive try-except blocks
+- **Language-Specific Features**: 
+  - VB.NET: MessageBox.Show integration, XML documentation
+  - Python: AST validation, module imports
+  - JavaScript: ES6+ features, module system
+  - C#: .NET framework integration
 
 ### Safety Features
 - **AST Validation**: Syntax validation using Python's Abstract Syntax Tree
@@ -187,12 +192,30 @@ graph TD
 - **Requirement Validation**: Ensures generated code meets user requirements
 - **Timeout Protection**: Prevents hanging on long-running operations
 - **Connection Limits**: Prevents resource exhaustion
+- **Language-Specific Validation**:
+  - VB.NET: Syntax patterns, MessageBox usage
+  - Python: AST parsing, import validation
+  - JavaScript: Syntax checking
+  - C#: Framework validation
 
 ### Language Detection
-- **Multi-language Support**: Detects Python, JavaScript, and C#
+- **Multi-language Support**: Detects VB.NET, Python, JavaScript, and C#
 - **Pattern Recognition**: Identifies language based on syntax patterns
 - **Code Block Extraction**: Properly extracts code from markdown blocks
 - **Language Specification**: Maintains language context in responses
+- **VB.NET Detection**: 
+  - MessageBox.Show patterns
+  - Public/Private class declarations
+  - End Class/Sub patterns
+- **Python Detection**:
+  - def/import statements
+  - Python-specific syntax
+- **JavaScript Detection**:
+  - function declarations
+  - ES6+ features
+- **C# Detection**:
+  - class declarations
+  - using statements
 
 ## Message Flow
 
@@ -278,6 +301,7 @@ graph TD
 - Supports code generation decisions
 - Manages LLM API interactions
 - Handles API timeouts and retries
+- Language-agnostic research capabilities
 
 ### Writer Agent
 - Generates code based on requirements
@@ -288,6 +312,28 @@ graph TD
 - Implements retry logic
 - Manages LLM API interactions
 - Handles API timeouts and retries
+- Specialized handling for VB.NET code generation
+
+### PromptWriter Agent
+- Generates language-specific prompts
+- Detects programming language from input
+- Creates appropriate research prompts
+- Generates code generation prompts
+- Supports multiple languages:
+  - VB.NET
+  - Python
+  - JavaScript
+  - C#
+
+### Code Validation
+- Base `CodeValidator` class for common validation
+- Language-specific validators:
+  - `VBValidator`: VB.NET specific validation
+  - `PythonValidator`: Python specific validation
+  - Extensible for other languages
+- Safety checks for each language
+- Syntax pattern validation
+- Framework-specific validation
 
 ## Event Flow
 1. User sends message
@@ -326,6 +372,7 @@ graph TD
 - LLM API connection errors
 - Environment configuration errors
 - Invalid message format errors
+- Language-specific validation errors
 
 ## Setup Instructions
 1. Install dependencies: `pip install -r requirements.txt`
@@ -342,6 +389,8 @@ graph TD
 - Enhanced timeout handling
 - Improved retry logic
 - Better environment validation
+- Additional language support
+- Enhanced VB.NET features
 
 ## Contributing
 1. Fork the repository

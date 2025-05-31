@@ -29,44 +29,56 @@ class Config:
         # Get and log the is_local values
         researcher_is_local = os.getenv("RESEARCHER_LLM_IS_LOCAL", "false")
         writer_is_local = os.getenv("WRITER_LLM_IS_LOCAL", "false")
+        prompt_writer_is_local = os.getenv("PROMPT_WRITER_LLM_IS_LOCAL", "false")
         
         logger.debug(f"\nRaw is_local values:")
         logger.debug(f"RESEARCHER_LLM_IS_LOCAL={researcher_is_local}")
         logger.debug(f"WRITER_LLM_IS_LOCAL={writer_is_local}")
+        logger.debug(f"PROMPT_WRITER_LLM_IS_LOCAL={prompt_writer_is_local}")
         
         # Convert to boolean, ensuring case-insensitive comparison
         is_local_researcher = str(researcher_is_local).lower() == "true"
         is_local_writer = str(writer_is_local).lower() == "true"
+        is_local_prompt_writer = str(prompt_writer_is_local).lower() == "true"
         
         logger.debug(f"\nParsed is_local values:")
         logger.debug(f"is_local_researcher={is_local_researcher}")
         logger.debug(f"is_local_writer={is_local_writer}")
+        logger.debug(f"is_local_prompt_writer={is_local_prompt_writer}")
         
         # Set default endpoints based on is_local flag
         researcher_endpoint = os.getenv("RESEARCHER_LLM_ENDPOINT")
         writer_endpoint = os.getenv("WRITER_LLM_ENDPOINT")
+        prompt_writer_endpoint = os.getenv("PROMPT_WRITER_LLM_ENDPOINT")
         
         logger.debug(f"\nEndpoint values:")
         logger.debug(f"RESEARCHER_LLM_ENDPOINT={researcher_endpoint}")
         logger.debug(f"WRITER_LLM_ENDPOINT={writer_endpoint}")
+        logger.debug(f"PROMPT_WRITER_LLM_ENDPOINT={prompt_writer_endpoint}")
         
         if not researcher_endpoint:
             researcher_endpoint = "http://localhost:1234/v1/chat/completions" if is_local_researcher else "https://api.openai.com/v1/chat/completions"
         
         if not writer_endpoint:
             writer_endpoint = "http://localhost:1234/v1/chat/completions" if is_local_writer else "https://api.openai.com/v1/chat/completions"
+            
+        if not prompt_writer_endpoint:
+            prompt_writer_endpoint = "http://localhost:1234/v1/chat/completions" if is_local_prompt_writer else "https://api.openai.com/v1/chat/completions"
         
         logger.debug(f"\nFinal endpoint values:")
         logger.debug(f"researcher_endpoint={researcher_endpoint}")
         logger.debug(f"writer_endpoint={writer_endpoint}")
+        logger.debug(f"prompt_writer_endpoint={prompt_writer_endpoint}")
         
         # Get model names
         researcher_model = os.getenv("RESEARCHER_LLM_MODEL", "Qwen_QwQ-32B-Q6_K_L" if is_local_researcher else "gpt-4")
         writer_model = os.getenv("WRITER_LLM_MODEL", "Qwen_QwQ-32B-Q6_K_L" if is_local_writer else "gpt-4")
+        prompt_writer_model = os.getenv("PROMPT_WRITER_LLM_MODEL", "Qwen_QwQ-32B-Q6_K_L" if is_local_prompt_writer else "gpt-4")
         
         logger.debug(f"\nModel values:")
         logger.debug(f"researcher_model={researcher_model}")
         logger.debug(f"writer_model={writer_model}")
+        logger.debug(f"prompt_writer_model={prompt_writer_model}")
         
         self.researcher_llm = LLMConfig(
             endpoint=researcher_endpoint,
@@ -88,9 +100,20 @@ class Config:
             is_local=is_local_writer
         )
         
+        self.prompt_writer_llm = LLMConfig(
+            endpoint=prompt_writer_endpoint,
+            api_key=None if is_local_prompt_writer else os.getenv("PROMPT_WRITER_LLM_API_KEY"),
+            model=prompt_writer_model,
+            temperature=float(os.getenv("PROMPT_WRITER_LLM_TEMPERATURE", "0.7")),
+            max_tokens=int(os.getenv("PROMPT_WRITER_LLM_MAX_TOKENS", "1000")),
+            timeout=int(os.getenv("PROMPT_WRITER_LLM_TIMEOUT", "30")),
+            is_local=is_local_prompt_writer
+        )
+        
         logger.debug(f"\nFinal LLM Configurations:")
         logger.debug(f"Researcher LLM Config: {self.researcher_llm}")
         logger.debug(f"Writer LLM Config: {self.writer_llm}")
+        logger.debug(f"PromptWriter LLM Config: {self.prompt_writer_llm}")
 
 # Create a global config instance
 config = Config() 

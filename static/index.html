@@ -26,6 +26,14 @@
         #message-input {
             width: 70%;
             padding: 10px;
+            min-height: 100px;
+            resize: vertical;
+            font-family: inherit;
+            font-size: inherit;
+            line-height: 1.5;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
         }
         #send-button {
             padding: 10px 20px;
@@ -81,7 +89,7 @@
     <h1>AG-UI Test</h1>
     <div id="chat-container"></div>
     <div>
-        <input type="text" id="message-input" placeholder="Type your message...">
+        <textarea id="message-input" placeholder="Type your message..."></textarea>
         <button id="send-button">Send</button>
     </div>
     <div id="debug-panel"></div>
@@ -266,8 +274,9 @@
         }
 
         sendButton.addEventListener('click', sendMessage);
-        messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
+        messageInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
                 sendMessage();
             }
         });
