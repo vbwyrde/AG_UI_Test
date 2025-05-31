@@ -30,14 +30,35 @@ import re
 import importlib
 import openai
 import httpx
+from dotenv import load_dotenv
 from config import config
 
-# Configure logging
+# Configure logging first
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+logger.debug(f"Loading .env file from: {env_path}")
+if os.path.exists(env_path):
+    logger.debug("Found .env file, loading environment variables")
+    load_dotenv(env_path, override=True)  # Add override=True to ensure values are loaded
+    # Verify environment variables were loaded
+    logger.debug("Verifying environment variables after loading:")
+    for key in os.environ:
+        if "LLM" in key:
+            logger.debug(f"{key}={os.environ[key]}")
+else:
+    logger.warning(f"No .env file found at {env_path}")
+
+# Force reload of config after environment variables are loaded
+from importlib import reload
+import config
+reload(config)
+from config import config
 
 app = FastAPI()
 
@@ -60,15 +81,21 @@ class ResearcherAgent:
         self.description = "Researches best practices and patterns for Python applications"
         self.capabilities = ["research", "analysis"]
         self.llm_config = config.researcher_llm
-        # Initialize OpenAI client only if not using local endpoint
+        logger.info(f"Researcher LLM Config: endpoint={self.llm_config.endpoint}, is_local={self.llm_config.is_local}, model={self.llm_config.model}")
+        # Only initialize OpenAI client if not using local endpoint
         if not self.llm_config.is_local:
             self.client = openai.OpenAI(api_key=self.llm_config.api_key)
 
     async def call_llm_api(self, prompt: str) -> str:
         """Call the LLM API to perform research."""
         try:
+            logger.info(f"Researcher calling LLM API with is_local={self.llm_config.is_local}")
+            logger.info(f"Researcher endpoint: {self.llm_config.endpoint}")
+            logger.info(f"Researcher model: {self.llm_config.model}")
+            
             if self.llm_config.is_local:
                 # Use httpx for local endpoints
+                logger.info(f"Using local endpoint: {self.llm_config.endpoint}")
                 async with httpx.AsyncClient(timeout=self.llm_config.timeout) as client:
                     response = await client.post(
                         self.llm_config.endpoint,
@@ -80,13 +107,15 @@ class ResearcherAgent:
                             ],
                             "temperature": self.llm_config.temperature,
                             "max_tokens": self.llm_config.max_tokens
-                        },
-                        headers=self.llm_config.headers
+                        }
                     )
                     response.raise_for_status()
                     return response.json()["choices"][0]["message"]["content"]
             else:
                 # Use OpenAI client for cloud endpoints
+                logger.info("Using OpenAI endpoint")
+                if not self.llm_config.api_key:
+                    raise ValueError("OpenAI API key is required when not using local endpoint")
                 response = self.client.chat.completions.create(
                     model=self.llm_config.model,
                     messages=[
@@ -231,41 +260,109 @@ class WriterAgent:
         self.description = "Generates Python code based on requirements and research"
         self.capabilities = ["code_generation", "validation"]
         self.llm_config = config.writer_llm
-        # Initialize OpenAI client only if not using local endpoint
+        logger.info(f"Writer LLM Config: endpoint={self.llm_config.endpoint}, is_local={self.llm_config.is_local}, model={self.llm_config.model}")
+        logger.debug(f"Full Writer LLM Config: {self.llm_config}")
+        # Only initialize OpenAI client if not using local endpoint
         if not self.llm_config.is_local:
+            logger.info("Initializing OpenAI client for Writer")
             self.client = openai.OpenAI(api_key=self.llm_config.api_key)
+        else:
+            logger.info("Writer configured to use local endpoint")
 
     async def call_llm_api(self, prompt: str) -> str:
         """Call the LLM API to generate code."""
         try:
+            logger.info(f"Writer calling LLM API with is_local={self.llm_config.is_local}")
+            logger.info(f"Writer endpoint: {self.llm_config.endpoint}")
+            logger.info(f"Writer model: {self.llm_config.model}")
+            
             if self.llm_config.is_local:
                 # Use httpx for local endpoints
-                async with httpx.AsyncClient(timeout=self.llm_config.timeout) as client:
-                    response = await client.post(
-                        self.llm_config.endpoint,
-                        json={
-                            "model": self.llm_config.model,
-                            "messages": [
-                                {"role": "system", "content": "You are a Python code generation assistant. Generate clean, efficient, and well-documented Python code."},
-                                {"role": "user", "content": prompt}
-                            ],
-                            "temperature": self.llm_config.temperature,
-                            "max_tokens": self.llm_config.max_tokens
-                        },
-                        headers=self.llm_config.headers
-                    )
-                    response.raise_for_status()
-                    return response.json()["choices"][0]["message"]["content"]
+                logger.info(f"Using local endpoint: {self.llm_config.endpoint}")
+                # Set longer timeouts for local LLM
+                timeout = httpx.Timeout(300.0, connect=10.0, read=600.0, write=10.0)  # 10 minute timeout for response
+                async with httpx.AsyncClient(
+                    timeout=timeout,
+                    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                    transport=httpx.AsyncHTTPTransport(retries=3)
+                ) as client:
+                    # Create a more specific prompt with example
+                    system_prompt = """You are a Python code generation assistant. Generate only the code, no explanations.
+                    The code should:
+                    1. Be safe to run
+                    2. Follow Python best practices
+                    3. Include proper error handling
+                    4. Be well-documented
+                    5. Include a main guard
+                    
+                    Example format for printing numbers:
+                    ```python
+                    def main():
+                        try:
+                            # Print numbers from 1 to 5
+                            for i in range(1, 6):
+                                print(i)
+                            return 0
+                        except Exception as e:
+                            print(f"Error: {e}")
+                            return 1
+
+                    if __name__ == "__main__":
+                        exit(main())
+                    ```
+                    
+                    Always use this exact structure, just modify the code inside the try block."""
+                    
+                    request_data = {
+                        "model": self.llm_config.model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": f"Create a Python script that: {prompt}"}
+                        ],
+                        "temperature": 0.3,  # Lower temperature for more deterministic output
+                        "max_tokens": 500  # Reduce max tokens for faster response
+                    }
+                    logger.debug(f"Local API request data: {request_data}")
+                    logger.info("Sending request to local LLM...")
+                    try:
+                        response = await client.post(
+                            self.llm_config.endpoint,
+                            json=request_data,
+                            timeout=timeout
+                        )
+                        logger.info(f"Received response from local LLM with status: {response.status_code}")
+                        response.raise_for_status()
+                        response_data = response.json()
+                        logger.debug(f"Local LLM response data: {response_data}")
+                        
+                        # Extract the response content
+                        if "choices" in response_data and len(response_data["choices"]) > 0:
+                            message = response_data["choices"][0].get("message", {})
+                            content = message.get("content", "")
+                            logger.info(f"Extracted content from response: {content[:100]}...")  # Log first 100 chars
+                            return content
+                        else:
+                            logger.error(f"Unexpected response format: {response_data}")
+                            raise ValueError("Unexpected response format from local LLM")
+                    except httpx.TimeoutException:
+                        logger.error("Request to local LLM timed out")
+                        raise ValueError("Local LLM request timed out. The model is taking longer than expected to respond. Please try again.")
+                    except httpx.RequestError as e:
+                        logger.error(f"Request to local LLM failed: {str(e)}")
+                        raise ValueError(f"Failed to connect to local LLM: {str(e)}")
             else:
                 # Use OpenAI client for cloud endpoints
+                logger.info("Using OpenAI endpoint")
+                if not self.llm_config.api_key:
+                    raise ValueError("OpenAI API key is required when not using local endpoint")
                 response = self.client.chat.completions.create(
                     model=self.llm_config.model,
                     messages=[
-                        {"role": "system", "content": "You are a Python code generation assistant. Generate clean, efficient, and well-documented Python code."},
-                        {"role": "user", "content": prompt}
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"Create a Python script that: {prompt}"}
                     ],
-                    temperature=self.llm_config.temperature,
-                    max_tokens=self.llm_config.max_tokens
+                    temperature=0.3,
+                    max_tokens=500
                 )
                 return response.choices[0].message.content
         except Exception as e:
@@ -395,17 +492,32 @@ class OrchestratorAgent:
         self.capabilities = ["coordination", "workflow_management"]
         self.researcher = ResearcherAgent()
         self.writer = WriterAgent()
+        logger.debug("Orchestrator initialized with agents:")
+        logger.debug(f"Researcher config: {self.researcher.llm_config}")
+        logger.debug(f"Writer config: {self.writer.llm_config}")
 
     async def process_message(self, message: str) -> str:
         logger.info(f"Orchestrator processing message: {message}")
+        logger.debug(f"Researcher is_local: {self.researcher.llm_config.is_local}")
+        logger.debug(f"Writer is_local: {self.writer.llm_config.is_local}")
+        
         # For simple script requests, skip the research phase
         if any(keyword in message.lower() for keyword in ["hello world", "hi there", "numbers from 1 to 10"]):
-            return await self.writer.process_message(message)
+            logger.info("Simple request detected, skipping research phase")
+            try:
+                return await self.writer.process_message(message)
+            except Exception as e:
+                logger.error(f"Error in writer process_message: {str(e)}")
+                raise
         
         # For more complex requests, use the full pipeline
-        research_results = await self.researcher.process_message(message)
-        code_results = await self.writer.process_message(research_results)
-        return f"Research Results: {research_results}\n\nGenerated Code: {code_results}"
+        try:
+            research_results = await self.researcher.process_message(message)
+            code_results = await self.writer.process_message(research_results)
+            return f"Research Results: {research_results}\n\nGenerated Code: {code_results}"
+        except Exception as e:
+            logger.error(f"Error in full pipeline: {str(e)}")
+            raise
 
 # Initialize agents
 orchestrator = OrchestratorAgent()
@@ -446,7 +558,7 @@ async def agent_endpoint(input_data: RunAgentInput):
             text_start = TextMessageStartEvent(
                 type=EventType.TEXT_MESSAGE_START,
                 message_id=message_id,
-                role="assistant"  # Use string instead of enum
+                role="assistant"
             )
             logger.info("Sending TEXT_MESSAGE_START event")
             yield format_sse_event(text_start)
@@ -457,7 +569,7 @@ async def agent_endpoint(input_data: RunAgentInput):
                 response = await orchestrator.process_message(input_data.messages[-1].content)
                 logger.info(f"Orchestrator response: {response}")
 
-                # Send the response content
+                # Send the response content as a single event
                 content_event = TextMessageContentEvent(
                     type=EventType.TEXT_MESSAGE_CONTENT,
                     message_id=message_id,
@@ -465,6 +577,23 @@ async def agent_endpoint(input_data: RunAgentInput):
                 )
                 logger.info("Sending TEXT_MESSAGE_CONTENT event")
                 yield format_sse_event(content_event)
+
+                # Send text message end event
+                text_end = TextMessageEndEvent(
+                    type=EventType.TEXT_MESSAGE_END,
+                    message_id=message_id
+                )
+                logger.info("Sending TEXT_MESSAGE_END event")
+                yield format_sse_event(text_end)
+
+                # Send run finished event
+                run_finished = RunFinishedEvent(
+                    type=EventType.RUN_FINISHED,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id
+                )
+                logger.info("Sending RUN_FINISHED event")
+                yield format_sse_event(run_finished)
             except Exception as e:
                 logger.error(f"Error processing message: {str(e)}", exc_info=True)
                 error_event = TextMessageContentEvent(
@@ -475,22 +604,19 @@ async def agent_endpoint(input_data: RunAgentInput):
                 logger.info("Sending error event")
                 yield format_sse_event(error_event)
 
-            # Send text message end event
-            text_end = TextMessageEndEvent(
-                type=EventType.TEXT_MESSAGE_END,
-                message_id=message_id
-            )
-            logger.info("Sending TEXT_MESSAGE_END event")
-            yield format_sse_event(text_end)
+                # Send end events even if there was an error
+                text_end = TextMessageEndEvent(
+                    type=EventType.TEXT_MESSAGE_END,
+                    message_id=message_id
+                )
+                yield format_sse_event(text_end)
 
-            # Send run finished event
-            run_finished = RunFinishedEvent(
-                type=EventType.RUN_FINISHED,
-                thread_id=input_data.thread_id,
-                run_id=input_data.run_id
-            )
-            logger.info("Sending RUN_FINISHED event")
-            yield format_sse_event(run_finished)
+                run_finished = RunFinishedEvent(
+                    type=EventType.RUN_FINISHED,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id
+                )
+                yield format_sse_event(run_finished)
         except Exception as e:
             logger.error(f"Error in event_generator: {str(e)}", exc_info=True)
             logger.error(f"Stack trace: {traceback.format_exc()}")
