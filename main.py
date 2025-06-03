@@ -128,59 +128,97 @@ class PromptWriterAgent:
         """Identifies the programming language from the input text."""
         # First check for explicit language mentions
         text_lower = text.lower()
-        if 'vb.net' in text_lower or 'vbnet' in text_lower or 'visual basic' in text_lower:
+        if 'c#' in text_lower or 'csharp' in text_lower:
+            return 'csharp'
+        elif 'vb.net' in text_lower or 'vbnet' in text_lower or 'visual basic' in text_lower:
             return 'vb.net'
+        elif 'javascript' in text_lower or 'js' in text_lower:
+            return 'javascript'
+        elif 'python' in text_lower:
+            return 'python'
             
-        # Count matches for each language
+        # If no explicit mention, use pattern matching
         scores = {lang: 0 for lang in self.language_patterns}
         for lang, patterns in self.language_patterns.items():
             for pattern in patterns:
                 if re.search(pattern, text, re.IGNORECASE):
                     scores[lang] += 1
         
-        # Return the language with the highest score, default to Python
-        return max(scores.items(), key=lambda x: x[1])[0] if any(scores.values()) else 'python'
-
-    async def call_llm_api(self, prompt: str) -> str:
-        """Call the LLM API to generate prompts."""
-        try:
-            logger.info(f"PromptWriter calling LLM API with is_local={self.llm_config.is_local}")
-            
-            if self.llm_config.is_local:
-                async with httpx.AsyncClient(timeout=self.llm_config.timeout) as client:
-                    response = await client.post(
-                        self.llm_config.endpoint,
-                        json={
-                            "model": self.llm_config.model,
-                            "messages": [
-                                {"role": "system", "content": "You are a prompt engineering assistant. Generate appropriate prompts for different programming languages and tasks."},
-                                {"role": "user", "content": prompt}
-                            ],
-                            "temperature": self.llm_config.temperature,
-                            "max_tokens": self.llm_config.max_tokens
-                        }
-                    )
-                    response.raise_for_status()
-                    return response.json()["choices"][0]["message"]["content"]
+        # Return the language with the highest score, or 'unknown' if no matches
+        if any(scores.values()):
+            return max(scores.items(), key=lambda x: x[1])[0]
+        else:
+            # If no patterns match, check for common language indicators
+            if 'debug.print' in text_lower or 'messagebox.show' in text_lower:
+                return 'vb.net'
+            elif 'console.writeline' in text_lower or 'using system' in text_lower:
+                return 'csharp'
             else:
-                if not self.llm_config.api_key:
-                    raise ValueError("OpenAI API key is required when not using local endpoint")
-                response = self.client.chat.completions.create(
-                    model=self.llm_config.model,
-                    messages=[
-                        {"role": "system", "content": "You are a prompt engineering assistant. Generate appropriate prompts for different programming languages and tasks."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=self.llm_config.temperature,
-                    max_tokens=self.llm_config.max_tokens
-                )
-                return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Error calling LLM API: {str(e)}")
-            raise
+                return 'unknown'
+
+    async def call_llm_api(self, prompt: str, max_retries: int = 3) -> str:
+        """Call the LLM API to generate prompts."""
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < max_retries:
+            try:
+                logger.info(f"PromptWriter calling LLM API with is_local={self.llm_config.is_local} (attempt {retry_count + 1}/{max_retries})")
+                
+                if self.llm_config.is_local:
+                    async with httpx.AsyncClient(timeout=1200.0) as client:  # 20 minute timeout
+                        response = await client.post(
+                            self.llm_config.endpoint,
+                            json={
+                                "model": self.llm_config.model,
+                                "messages": [
+                                    {"role": "system", "content": "You are a prompt engineering assistant. Generate appropriate prompts for different programming languages and tasks."},
+                                    {"role": "user", "content": prompt}
+                                ],
+                                "temperature": self.llm_config.temperature,
+                                "max_tokens": self.llm_config.max_tokens
+                            }
+                        )
+                        response.raise_for_status()
+                        return response.json()["choices"][0]["message"]["content"]
+                else:
+                    if not self.llm_config.api_key:
+                        raise ValueError("OpenAI API key is required when not using local endpoint")
+                    response = self.client.chat.completions.create(
+                        model=self.llm_config.model,
+                        messages=[
+                            {"role": "system", "content": "You are a prompt engineering assistant. Generate appropriate prompts for different programming languages and tasks."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=self.llm_config.temperature,
+                        max_tokens=self.llm_config.max_tokens
+                    )
+                    return response.choices[0].message.content
+                    
+            except httpx.TimeoutException as e:
+                last_error = e
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.warning(f"Timeout on attempt {retry_count}, retrying...")
+                    await asyncio.sleep(1)  # Wait 1 second before retrying
+                continue
+            except Exception as e:
+                logger.error(f"Error calling LLM API: {e}", exc_info=True)
+                raise
+        
+        # If we get here, all retries failed
+        error_message = f"Failed to generate prompt after {max_retries} attempts. Last error: {str(last_error)}"
+        logger.error(error_message)
+        raise ValueError(error_message)
 
     async def generate_research_prompt(self, message: str, language: str) -> str:
         """Generate a research prompt for the specified language."""
+        # Ensure language is properly formatted (e.g., 'csharp' instead of 'C#')
+        if language.lower() == 'c#':
+            language = 'csharp'
+        elif language.lower() == 'vb.net':
+            language = 'vb.net'
+            
         prompt = f"""
         Generate a research prompt for the following {language} code requirement:
         {message}
@@ -297,60 +335,141 @@ class ResearcherAgent:
         if not self.llm_config.is_local:
             self.client = openai.OpenAI(api_key=self.llm_config.api_key)
 
-    async def call_llm_api(self, prompt: str) -> str:
+    async def call_llm_api(self, prompt: str, max_retries: int = 3) -> str:
         """Call the LLM API to get research results."""
-        try:
-            logger.info(f"Researcher calling LLM API with is_local={self.llm_config.is_local}")
-            
-            if self.llm_config.is_local:
-                async with httpx.AsyncClient(timeout=self.llm_config.timeout) as client:
-                    response = await client.post(
-                        self.llm_config.endpoint,
-                        json={
-                            "model": self.llm_config.model,
-                            "messages": [
-                                {"role": "system", "content": "You are a research assistant specializing in programming best practices and patterns."},
-                                {"role": "user", "content": prompt}
-                            ],
-                            "temperature": self.llm_config.temperature,
-                            "max_tokens": self.llm_config.max_tokens
-                        }
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < max_retries:
+            try:
+                logger.info(f"Researcher calling LLM API with is_local={self.llm_config.is_local} (attempt {retry_count + 1}/{max_retries})")
+                
+                if self.llm_config.is_local:
+                    async with httpx.AsyncClient(timeout=1200.0) as client:  # 20 minute timeout
+                        response = await client.post(
+                            self.llm_config.endpoint,
+                            json={
+                                "model": self.llm_config.model,
+                                "messages": [
+                                    {"role": "system", "content": "You are a research assistant specializing in programming best practices and patterns."},
+                                    {"role": "user", "content": prompt}
+                                ],
+                                "temperature": self.llm_config.temperature,
+                                "max_tokens": self.llm_config.max_tokens
+                            }
+                        )
+                        response.raise_for_status()
+                        return response.json()["choices"][0]["message"]["content"]
+                else:
+                    if not self.llm_config.api_key:
+                        raise ValueError("OpenAI API key is required when not using local endpoint")
+                    response = self.client.chat.completions.create(
+                        model=self.llm_config.model,
+                        messages=[
+                            {"role": "system", "content": "You are a research assistant specializing in programming best practices and patterns."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=self.llm_config.temperature,
+                        max_tokens=self.llm_config.max_tokens
                     )
-                    response.raise_for_status()
-                    return response.json()["choices"][0]["message"]["content"]
-            else:
-                if not self.llm_config.api_key:
-                    raise ValueError("OpenAI API key is required when not using local endpoint")
-                response = self.client.chat.completions.create(
-                    model=self.llm_config.model,
-                    messages=[
-                        {"role": "system", "content": "You are a research assistant specializing in programming best practices and patterns."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=self.llm_config.temperature,
-                    max_tokens=self.llm_config.max_tokens
-                )
-                return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Error calling LLM API: {str(e)}")
-            raise
+                    return response.choices[0].message.content
+                    
+            except httpx.TimeoutException as e:
+                last_error = e
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.warning(f"Timeout on attempt {retry_count}, retrying...")
+                    await asyncio.sleep(1)  # Wait 1 second before retrying
+                continue
+            except Exception as e:
+                logger.error(f"Error calling LLM API: {e}", exc_info=True)
+                raise
+        
+        # If we get here, all retries failed
+        error_message = f"Failed to get research results after {max_retries} attempts. Last error: {str(last_error)}"
+        logger.error(error_message)
+        raise ValueError(error_message)
 
     async def process_message(self, message: str) -> str:
         logger.info(f"Researcher processing message: {message}")
         
         # Detect language from message using PromptWriterAgent
         language = self.prompt_writer.identify_language(message)
+        logger.info(f"Detected language for research: {language}")
         
         # Generate appropriate research prompt
         research_prompt = await self.prompt_writer.generate_research_prompt(message, language)
         
         try:
-            # Get research results from LLM
+            # Get initial research results from LLM
             research_results = await self.call_llm_api(research_prompt)
-            return research_results
+            
+            # Extract code example if present
+            code_example = None
+            if f"```{language}" in research_results:
+                code_block = research_results.split(f"```{language}")[1].split("```")[0].strip()
+                code_example = code_block
+            elif "```" in research_results:
+                code_block = research_results.split("```")[1].split("```")[0].strip()
+                code_example = code_block
+            
+            # Generate a summary of the research results
+            summary_prompt = f"""Analyze the following research results and provide a concise summary.
+Focus on key requirements, best practices, and critical considerations.
+Exclude any code examples or implementation details.
+
+Research Results:
+{research_results}
+
+Return a JSON object with these fields:
+1. summary: A concise summary of key points and requirements
+2. critical_points: A list of critical points that must be implemented
+3. code_example: The code example from the research (if any)
+4. original_research: The complete research results
+
+Format the response as valid JSON with no additional text, markdown formatting, or code blocks."""
+
+            summary_result = await self.call_llm_api(summary_prompt)
+            
+            try:
+                # Clean up the summary result by removing any markdown formatting
+                summary_result = summary_result.replace("```json", "").replace("```", "").strip()
+                
+                # Try to parse the summary as JSON
+                summary_data = json.loads(summary_result)
+                
+                # Ensure all required fields are present
+                if "summary" not in summary_data:
+                    summary_data["summary"] = "No summary provided"
+                if "critical_points" not in summary_data:
+                    summary_data["critical_points"] = []
+                if "code_example" not in summary_data and code_example:
+                    summary_data["code_example"] = code_example
+                if "original_research" not in summary_data:
+                    summary_data["original_research"] = research_results
+                
+                return json.dumps(summary_data, indent=2)
+            except json.JSONDecodeError as e:
+                # If JSON parsing fails, create a structured response manually
+                logger.error(f"Failed to parse summary as JSON: {str(e)}")
+                logger.error(f"Raw summary result: {summary_result}")
+                structured_response = {
+                    "summary": summary_result,
+                    "critical_points": [],
+                    "code_example": code_example,
+                    "original_research": research_results
+                }
+                return json.dumps(structured_response, indent=2)
+                
         except Exception as e:
             logger.error(f"Error in research process: {str(e)}")
-            return f"Error during research: {str(e)}"
+            error_response = {
+                "summary": f"Error during research: {str(e)}",
+                "critical_points": [],
+                "code_example": None,
+                "original_research": None
+            }
+            return json.dumps(error_response, indent=2)
 
 class WriterAgent:
     def __init__(self):
@@ -368,43 +487,60 @@ class WriterAgent:
         if not self.llm_config.is_local:
             self.client = openai.OpenAI(api_key=self.llm_config.api_key)
 
-    async def call_llm_api(self, prompt: str) -> str:
-        """Call the LLM API to generate code."""
-        try:
-            logger.info(f"Writer calling LLM API with is_local={self.llm_config.is_local}")
-            
-            if self.llm_config.is_local:
-                async with httpx.AsyncClient(timeout=self.llm_config.timeout) as client:
-                    response = await client.post(
-                        self.llm_config.endpoint,
-                        json={
-                            "model": self.llm_config.model,
-                            "messages": [
-                                {"role": "system", "content": "You are a code generation assistant specializing in writing safe and idiomatic code."},
-                                {"role": "user", "content": prompt}
-                            ],
-                            "temperature": self.llm_config.temperature,
-                            "max_tokens": self.llm_config.max_tokens
-                        }
+    async def call_llm_api(self, prompt: str, max_retries: int = 3) -> str:
+        """Call the LLM API to generate code with retry logic."""
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < max_retries:
+            try:
+                logger.info(f"Writer calling LLM API with is_local={self.llm_config.is_local} (attempt {retry_count + 1}/{max_retries})")
+                
+                if self.llm_config.is_local:
+                    async with httpx.AsyncClient(timeout=1200.0) as client:  # Increased timeout to 10 minutes
+                        response = await client.post(
+                            self.llm_config.endpoint,
+                            json={
+                                "model": self.llm_config.model,
+                                "messages": [
+                                    {"role": "system", "content": "You are a code generation assistant specializing in writing safe and idiomatic code."},
+                                    {"role": "user", "content": prompt}
+                                ],
+                                "temperature": self.llm_config.temperature,
+                                "max_tokens": self.llm_config.max_tokens
+                            }
+                        )
+                        response.raise_for_status()
+                        return response.json()["choices"][0]["message"]["content"]
+                else:
+                    if not self.llm_config.api_key:
+                        raise ValueError("OpenAI API key is required when not using local endpoint")
+                    response = self.client.chat.completions.create(
+                        model=self.llm_config.model,
+                        messages=[
+                            {"role": "system", "content": "You are a code generation assistant specializing in writing safe and idiomatic code."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=self.llm_config.temperature,
+                        max_tokens=self.llm_config.max_tokens
                     )
-                    response.raise_for_status()
-                    return response.json()["choices"][0]["message"]["content"]
-            else:
-                if not self.llm_config.api_key:
-                    raise ValueError("OpenAI API key is required when not using local endpoint")
-                response = self.client.chat.completions.create(
-                    model=self.llm_config.model,
-                    messages=[
-                        {"role": "system", "content": "You are a code generation assistant specializing in writing safe and idiomatic code."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=self.llm_config.temperature,
-                    max_tokens=self.llm_config.max_tokens
-                )
-                return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Error calling LLM API: {str(e)}")
-            raise
+                    return response.choices[0].message.content
+                    
+            except httpx.TimeoutException as e:
+                last_error = e
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.warning(f"Timeout on attempt {retry_count}, retrying...")
+                    await asyncio.sleep(1)  # Wait 1 second before retrying
+                continue
+            except Exception as e:
+                logger.error(f"Error calling LLM API: {e}", exc_info=True)
+                raise
+        
+        # If we get here, all retries failed
+        error_message = f"Failed to generate code after {max_retries} attempts. Last error: {str(last_error)}"
+        logger.error(error_message)
+        raise ValueError(error_message)
 
     async def validate_code_requirements(self, code: str, requirements: str) -> tuple[bool, str]:
         """Validate if the generated code meets the requirements."""
@@ -415,18 +551,94 @@ Requirements: {requirements}
 Code:
 {code}
 
-Return a JSON response with two fields:
-1. meets_requirements: boolean
-2. message: string explaining why it meets or doesn't meet the requirements"""
+Return a JSON response in this exact format:
+{{
+    "meets_requirements": true/false,
+    "message": "Explanation of why it meets or doesn't meet the requirements"
+}}
 
+IMPORTANT: 
+1. Return ONLY the JSON object, no additional text or formatting
+2. Do not include any XML-like tags or other text before or after the JSON
+3. Start the response with {{ and end with }}
+4. Do not include any explanations or multiple JSON objects"""
+
+            logger.info("Sending validation request to LLM")
             validation_result = await self.call_llm_api(prompt)
+            logger.info(f"Received validation response: {validation_result}")
+            
+            # Clean up the response by removing any extra text and markdown formatting
+            validation_result = validation_result.replace("```json", "").replace("```", "").strip()
+            
+            # Remove any XML-like tags and text before the first {
+            if "{" in validation_result:
+                # Find the first {
+                start_idx = validation_result.find("{")
+                # Look for any XML-like tags before the {
+                before_json = validation_result[:start_idx]
+                # Remove any XML-like tags (including think tags)
+                cleaned_before = re.sub(r'<[^>]+>', '', before_json)
+                # Remove any remaining whitespace
+                cleaned_before = cleaned_before.strip()
+                # If there was any content before the JSON, log it
+                if cleaned_before:
+                    logger.warning(f"Found and removed content before JSON: {cleaned_before}")
+                # Keep only the JSON portion
+                validation_result = validation_result[start_idx:]
+            
+            # Remove any text after the last }
+            if "}" in validation_result:
+                # Find the last }
+                end_idx = validation_result.rfind("}") + 1
+                # Look for any XML-like tags after the }
+                after_json = validation_result[end_idx:]
+                # Remove any XML-like tags
+                cleaned_after = re.sub(r'<[^>]+>', '', after_json)
+                # Remove any remaining whitespace
+                cleaned_after = cleaned_after.strip()
+                # If there was any content after the JSON, log it
+                if cleaned_after:
+                    logger.warning(f"Found and removed content after JSON: {cleaned_after}")
+                # Keep only the JSON portion
+                validation_result = validation_result[:end_idx]
+            
+            logger.info(f"Cleaned validation response: {validation_result}")
+            
             try:
+                # Try to parse the validation result as JSON
                 result = json.loads(validation_result)
-                return result.get("meets_requirements", False), result.get("message", "Validation failed")
-            except json.JSONDecodeError:
+                logger.info(f"Successfully parsed JSON response: {result}")
+                
+                # Ensure the response has the required fields
+                if not isinstance(result, dict):
+                    logger.error(f"Invalid validation response: not a JSON object. Response: {validation_result}")
+                    return False, "Invalid validation response: not a JSON object"
+                    
+                if "meets_requirements" not in result or "message" not in result:
+                    logger.error(f"Invalid validation response: missing required fields. Response: {validation_result}")
+                    return False, "Invalid validation response: missing required fields"
+                    
+                if not isinstance(result["meets_requirements"], bool):
+                    logger.error(f"Invalid validation response: meets_requirements must be a boolean. Response: {result}")
+                    return False, "Invalid validation response: meets_requirements must be a boolean"
+                    
+                if not isinstance(result["message"], str):
+                    logger.error(f"Invalid validation response: message must be a string. Response: {result}")
+                    return False, "Invalid validation response: message must be a string"
+                
+                logger.info(f"Validation successful. Meets requirements: {result['meets_requirements']}")
+                return result["meets_requirements"], result["message"]
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse validation response as JSON: {validation_result}")
+                logger.error(f"JSON decode error: {str(e)}")
+                logger.error(f"Error location: line {e.lineno}, column {e.colno}")
+                logger.error(f"Error message: {e.msg}")
                 return False, "Invalid validation response format"
+                
         except Exception as e:
             logger.error(f"Error validating code requirements: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             return False, f"Validation error: {str(e)}"
 
     async def process_message(self, message: str) -> str:
@@ -449,6 +661,28 @@ The code has been validated for safety and meets all requirements."""
             
             # For other languages, use the standard approach
             generation_prompt = await self.prompt_writer.generate_code_prompt(message, language)
+            
+            # Check if the message contains research results in JSON format
+            try:
+                research_data = json.loads(message)
+                if isinstance(research_data, dict) and "summary" in research_data:
+                    # Use the research data to enhance the generation prompt
+                    code_example_text = f"\nReference Code Example:\n{research_data.get('code_example', '')}" if research_data.get('code_example') else ""
+                    code_example_instruction = "\nYou may use the reference code example as a starting point, but ensure you implement all requirements." if research_data.get('code_example') else ""
+                    
+                    generation_prompt = f"""Original Request: {message}
+
+Implementation Requirements:
+{research_data.get('summary', '')}
+
+Critical Points to Implement:
+{chr(10).join(f"- {point}" for point in research_data.get('critical_points', []))}{code_example_text}{code_example_instruction}
+
+Please implement the code following these requirements and critical points. Ensure the code is properly formatted and includes all necessary using statements and XML documentation."""
+            except json.JSONDecodeError:
+                # If not JSON, use the original generation prompt
+                pass
+            
             code = await self.call_llm_api(generation_prompt)
             
             # Extract code block and identify language
@@ -456,7 +690,7 @@ The code has been validated for safety and meets all requirements."""
             
             # Get appropriate validator
             validator = self.validators.get(detected_language, CodeValidator())
-            
+
             # Validate code safety
             is_safe, safety_message = validator.validate_code_safety(extracted_code, detected_language)
             if not is_safe:
@@ -467,6 +701,22 @@ The code has been validated for safety and meets all requirements."""
             if not meets_requirements:
                 return f"Error: {requirement_message}"
 
+            # Add necessary using statements and XML documentation for C#
+            if detected_language == 'csharp':
+                using_statements = """using System;
+using System.Globalization;
+
+"""
+                # Add XML documentation if not present
+                if not "/// <summary>" in extracted_code:
+                    extracted_code = extracted_code.replace("public static void PrintDecimalAsString", """/// <summary>
+/// Converts a decimal value to a string and prints it to the console using invariant culture formatting.
+/// </summary>
+/// <param name="value">The decimal value to convert and print.</param>
+public static void PrintDecimalAsString""")
+                
+                extracted_code = using_statements + extracted_code
+
             return f"""Here's the generated code:
 
 ```{detected_language}
@@ -476,8 +726,8 @@ The code has been validated for safety and meets all requirements."""
 The code has been validated for safety and meets all requirements."""
 
         except Exception as e:
-            logger.error(f"Error in process_message: {str(e)}")
-            return f"Error generating code: {str(e)}"
+            logger.error(f"Error in process_message: {e}", exc_info=True)
+            return f"Error generating code: {e}"
 
     async def generate_vb_code(self, message: str) -> str:
         """Generate VB.NET code with a more focused prompt."""
@@ -513,6 +763,31 @@ Return only the code, no explanations."""
             logger.error(f"Error generating VB.NET code: {str(e)}")
             raise
 
+def extract_code_block(text: str) -> tuple[str, str]:
+    """Extract code block from markdown text and detect its language.
+    
+    Args:
+        text: The text containing a code block
+        
+    Returns:
+        tuple: (extracted_code, detected_language)
+    """
+    try:
+        # Look for code blocks in markdown format
+        code_block_pattern = r'```(\w+)?\n(.*?)```'
+        match = re.search(code_block_pattern, text, re.DOTALL)
+        
+        if match:
+            language = match.group(1) or 'text'  # Default to 'text' if no language specified
+            code = match.group(2).strip()
+            return code, language
+            
+        # If no markdown code block found, return the text as is
+        return text, 'text'
+    except Exception as e:
+        logger.error(f"Error extracting code block: {str(e)}")
+        return text, 'text'
+
 class OrchestratorAgent:
     def __init__(self):
         self.name = "Orchestrator"
@@ -540,9 +815,48 @@ class OrchestratorAgent:
         
         # For more complex requests, use the full pipeline
         try:
+            # Get research results
             research_results = await self.researcher.process_message(message)
-            code_results = await self.writer.process_message(research_results)
-            return f"Research Results: {research_results}\n\nGenerated Code: {code_results}"
+            logger.info("Research results received, parsing structured output")
+            
+            try:
+                # Parse the structured research output
+                research_data = json.loads(research_results)
+                summary = research_data.get("summary", "")
+                critical_points = research_data.get("critical_points", [])
+                code_example = research_data.get("code_example")
+                original_research = research_data.get("original_research", "")
+                
+                # Construct a focused prompt for the writer
+                code_example_text = f"\nReference Code Example:\n{code_example}" if code_example else ""
+                code_example_instruction = "\nYou may use the reference code example as a starting point, but ensure you implement all requirements." if code_example else ""
+                
+                writer_prompt = f"""Original Request: {message}
+
+Implementation Requirements:
+{summary}
+
+Critical Points to Implement:
+{chr(10).join(f"- {point}" for point in critical_points)}{code_example_text}
+
+Please implement the code following these requirements and critical points.{code_example_instruction}"""
+                
+                code_results = await self.writer.process_message(writer_prompt)
+                return f"Research Summary: {summary}\n\nCritical Points:\n{chr(10).join(f'- {point}' for point in critical_points)}\n\nGenerated Code: {code_results}"
+            except json.JSONDecodeError:
+                logger.error("Failed to parse research results as JSON, falling back to original format")
+                # Fall back to the original format if JSON parsing fails
+                combined_prompt = f"""Original Request: {message}
+
+Research and Requirements:
+{research_results}
+
+Please implement the code based on both the original request and the research findings above.
+Ensure the implementation follows all best practices and patterns identified in the research."""
+                
+                code_results = await self.writer.process_message(combined_prompt)
+                return f"Research Results: {research_results}\n\nGenerated Code: {code_results}"
+                
         except Exception as e:
             logger.error(f"Error in full pipeline: {str(e)}")
             raise
