@@ -1,22 +1,23 @@
-# Python Code Generation System
+# AG-UI Test Application
 
-A FastAPI-based system that uses LLMs to research and generate code based on user requirements. Supports multiple programming languages including Python, VB.NET, JavaScript, and C#.
+A FastAPI-based system that demonstrates the implementation of the Agent User Interaction (AG_UI) Protocol for real-time communication between agents and users. This application serves as a practical example of how to integrate AG_UI into an agent-based system.
 
 ## Features
 
-- Research best practices and patterns using LLMs
-- Generate code in multiple languages (Python, VB.NET, JavaScript, C#)
+- Implementation of AG_UI Protocol for real-time communication
+- Server-Sent Events (SSE) for streaming responses
+- Structured event system for agent-user interactions
+- Real-time code generation with multiple LLM agents
 - Support for both cloud-based and local LLM endpoints
-- Configurable LLM settings per agent
-- Language-specific code validation
-- Module dependency checking
-- Language detection and appropriate prompt generation
+- Language-specific code validation and generation
+- Comprehensive error handling with AG_UI error events
 
 ## Prerequisites
 
 - Python 3.8 or higher
 - pip (Python package manager)
 - Access to an LLM API (OpenAI, local LM Studio, etc.)
+- AG_UI Protocol package (`ag_ui_protocol`)
 
 ## Installation
 
@@ -112,7 +113,7 @@ uvicorn main:app --reload
 ## API Endpoints
 
 ### POST /awp
-Main endpoint for code generation requests.
+Main endpoint for agent interactions using AG_UI Protocol.
 
 Request body:
 ```json
@@ -128,74 +129,45 @@ Request body:
 }
 ```
 
+Response: Server-Sent Events (SSE) stream with AG_UI events:
+- `RUN_STARTED`
+- `TEXT_MESSAGE_START`
+- `TEXT_MESSAGE_CONTENT`
+- `TEXT_MESSAGE_END`
+- `RUN_FINISHED`
+- `RUN_ERROR` (if applicable)
+
 ## Architecture
 
-The system consists of three main agents:
+The system implements the AG_UI Protocol with the following components:
 
-### PromptWriterAgent
-- Generates appropriate prompts for different programming languages
-- Detects programming language from user input
-- Creates language-specific research and code generation prompts
-- Ensures consistent prompt structure across languages
-- Supports VB.NET, Python, JavaScript, and C# syntax patterns
+### Event System
+- Uses Server-Sent Events (SSE) for real-time communication
+- Implements AG_UI event hierarchy
+- Handles event encoding and streaming
+- Manages message IDs and event sequencing
 
-### ResearcherAgent
-- Researches best practices and patterns
-- Uses LLM to analyze requirements
-- Provides structured research results
-- Language-agnostic research capabilities
-- Supports multiple programming languages
-
-### WriterAgent
-- Generates code based on requirements and research
-- Validates code safety using language-specific validators
-- Checks module dependencies
-- Uses LLM for code generation and validation
-- Supports multiple programming languages
-- Includes specialized handling for VB.NET code generation
+### Agent System
+- Orchestrator Agent: Coordinates the workflow and event generation
+- Researcher Agent: Provides research capabilities
+- Writer Agent: Generates and validates code
+- PromptWriter Agent: Creates language-specific prompts
 
 ### Code Validation
-The system includes a flexible validation framework:
-- Base `CodeValidator` class for common validation
-- Language-specific validators (e.g., `PythonValidator`, `VBValidator`)
-- Extensible design for adding new language validators
-- Separate safety checks for different languages
-- VB.NET specific validation patterns
-
-## Language Support
-
-### VB.NET
-- Full support for VB.NET code generation
-- VB.NET specific syntax validation
-- MessageBox.Show integration
-- XML documentation comments
-- Error handling for null/empty values
-- Proper VB.NET naming conventions
-
-### Python
-- Python code generation
-- AST-based syntax validation
-- Module dependency checking
-- Python-specific safety checks
-
-### JavaScript
-- JavaScript code generation
-- Syntax validation
-- Module dependency checking
-
-### C#
-- C# code generation
-- Syntax validation
+- Language-specific validators
+- Safety checks
+- Requirement validation
 - Module dependency checking
 
 ## Error Handling
 
-The system includes comprehensive error handling for:
+The system implements comprehensive error handling using AG_UI error events:
 - LLM API failures
 - Code safety violations
 - Missing dependencies
 - Invalid configurations
 - Language-specific validation errors
+- Stream processing errors
 
 ## Development
 
@@ -229,10 +201,10 @@ pip install -r requirements.txt
    - Check network connectivity
    - Ensure correct configuration for local/cloud endpoints
 
-2. Code Generation Failures
-   - Check LLM model availability
-   - Verify token limits
-   - Review error logs
+2. Event Stream Issues
+   - Check SSE connection
+   - Verify event formatting
+   - Monitor event sequencing
 
 3. Configuration Problems
    - Ensure all required environment variables are set

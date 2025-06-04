@@ -1,19 +1,17 @@
 # AG-UI Test Application Documentation
 
 ## Purpose
-This application was created via pure vibe-coding using Cursor.  I created it with the intention
-of using this code to learn how AG_UI fits into the Agent Architecture.  The documentation.md 
-is the actual output, as that served as my study guide once the code was generated.  In this way
-I was able to quickly use this simple prototype to understand how AG_UI works.
+This application was created as a learning exercise to understand and demonstrate the Agent User Interaction (AG_UI) Protocol. The application serves as a practical example of how to integrate AG_UI into an agent-based system, focusing on real-time communication between agents and users through a structured event system.
 
 ## AG_UI Protocol Overview
-The Agent User Interaction (AG_UI) Protocol is a standardized way for agents to communicate with users through a structured event system. This application implements the AG_UI protocol to provide real-time, streaming interactions between the agent system and the user interface.
+The Agent User Interaction (AG_UI) Protocol provides a standardized way for agents to communicate with users through a structured event system. This application implements AG_UI to demonstrate real-time, streaming interactions between the agent system and the user interface.
 
 ### Core Components
 1. **Event System**
    - Uses Server-Sent Events (SSE) for real-time communication
-   - Implements a structured event hierarchy
+   - Implements the AG_UI event hierarchy from the protocol
    - Supports streaming responses with proper event sequencing
+   - Demonstrates proper event encoding using `EventEncoder`
 
 2. **Event Types**
    - `RUN_STARTED`: Signals the beginning of an agent run
@@ -45,9 +43,10 @@ The Agent User Interaction (AG_UI) Protocol is a standardized way for agents to 
 4. **Protocol Implementation**
    - Uses FastAPI for the web server
    - Implements streaming responses using `StreamingResponse`
-   - Handles event formatting through `EventEncoder`
+   - Uses `EventEncoder` for proper event formatting
    - Manages message IDs for tracking conversations
    - Provides error handling and recovery mechanisms
+   - Demonstrates proper event sequencing
 
 5. **Key Features**
    - Real-time streaming of agent responses
@@ -56,27 +55,32 @@ The Agent User Interaction (AG_UI) Protocol is a standardized way for agents to 
    - Error handling and recovery
    - Thread and run tracking
    - State management
+   - Proper event encoding and decoding
 
 6. **Integration Points**
    - Frontend: Receives and processes SSE events
    - Backend: Generates and streams events
    - Agent System: Produces content for events
    - Error Handling: Manages and reports issues
+   - Event Encoder: Formats events according to protocol
 
 ### Event Processing Flow
-1. User request received
-2. Generate unique message ID
-3. Initialize event stream
-4. Process request through agent system
-5. Stream events in real-time
-6. Handle completion or errors
-7. Close event stream
+1. User request received at `/awp` endpoint
+2. Generate unique message ID using UUID
+3. Initialize event stream with `RUN_STARTED`
+4. Send `TEXT_MESSAGE_START` event
+5. Process request through agent system
+6. Stream `TEXT_MESSAGE_CONTENT` events
+7. Send `TEXT_MESSAGE_END` event
+8. Send `RUN_FINISHED` event
+9. Handle any errors with `RUN_ERROR` event
 
 ### Error Handling
-- Graceful error recovery
-- Error event propagation
+- Graceful error recovery using AG_UI error events
+- Error event propagation through the event stream
 - Stream maintenance during errors
 - User feedback for issues
+- Proper error event formatting
 
 ## Benefits of Using AG_UI
 
@@ -94,7 +98,7 @@ The Agent User Interaction (AG_UI) Protocol is a standardized way for agents to 
 
 ### 3. Flexible Integration
 - Works with any transport layer (HTTP, SSE, WebSockets)
-- Supports multiple agent frameworks (LangGraph, CrewAI, Mastra)
+- Supports multiple agent frameworks
 - Enables easy switching between different LLM providers
 - Provides framework-agnostic frontend contracts
 
