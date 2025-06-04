@@ -555,67 +555,37 @@ Return a JSON response in this exact format:
 {{
     "meets_requirements": true/false,
     "message": "Explanation of why it meets or doesn't meet the requirements"
-}}
-
-IMPORTANT: 
-1. Return ONLY the JSON object, no additional text or formatting
-2. Do not include any XML-like tags or other text before or after the JSON
-3. Start the response with {{ and end with }}
-4. Do not include any explanations or multiple JSON objects"""
+}}"""
 
             logger.info("Sending validation request to LLM")
             validation_result = await self.call_llm_api(prompt)
             logger.info(f"Received validation response: {validation_result}")
             
-            # Clean up the response by removing any extra text and markdown formatting
-            validation_result = validation_result.replace("```json", "").replace("```", "").strip()
+            # Use regex to find the first valid JSON object in the response
+            # This pattern looks for a JSON object that starts with { and ends with }
+            # and contains the required fields
+            json_pattern = r'{[^{]*"meets_requirements"\s*:\s*(?:true|false)[^}]*"message"\s*:\s*"[^"]*"[^}]*}'
+            match = re.search(json_pattern, validation_result, re.DOTALL)
             
-            # Remove any XML-like tags and text before the first {
-            if "{" in validation_result:
-                # Find the first {
-                start_idx = validation_result.find("{")
-                # Look for any XML-like tags before the {
-                before_json = validation_result[:start_idx]
-                # Remove any XML-like tags (including think tags)
-                cleaned_before = re.sub(r'<[^>]+>', '', before_json)
-                # Remove any remaining whitespace
-                cleaned_before = cleaned_before.strip()
-                # If there was any content before the JSON, log it
-                if cleaned_before:
-                    logger.warning(f"Found and removed content before JSON: {cleaned_before}")
-                # Keep only the JSON portion
-                validation_result = validation_result[start_idx:]
+            if not match:
+                logger.error(f"Could not find valid JSON object in response: {validation_result}")
+                return False, "Invalid validation response: Could not find valid JSON object"
             
-            # Remove any text after the last }
-            if "}" in validation_result:
-                # Find the last }
-                end_idx = validation_result.rfind("}") + 1
-                # Look for any XML-like tags after the }
-                after_json = validation_result[end_idx:]
-                # Remove any XML-like tags
-                cleaned_after = re.sub(r'<[^>]+>', '', after_json)
-                # Remove any remaining whitespace
-                cleaned_after = cleaned_after.strip()
-                # If there was any content after the JSON, log it
-                if cleaned_after:
-                    logger.warning(f"Found and removed content after JSON: {cleaned_after}")
-                # Keep only the JSON portion
-                validation_result = validation_result[:end_idx]
-            
-            logger.info(f"Cleaned validation response: {validation_result}")
+            json_portion = match.group(0)
+            logger.info(f"Extracted JSON: {json_portion}")
             
             try:
-                # Try to parse the validation result as JSON
-                result = json.loads(validation_result)
+                # Try to parse the extracted JSON
+                result = json.loads(json_portion)
                 logger.info(f"Successfully parsed JSON response: {result}")
                 
                 # Ensure the response has the required fields
                 if not isinstance(result, dict):
-                    logger.error(f"Invalid validation response: not a JSON object. Response: {validation_result}")
+                    logger.error(f"Invalid validation response: not a JSON object. Response: {json_portion}")
                     return False, "Invalid validation response: not a JSON object"
                     
                 if "meets_requirements" not in result or "message" not in result:
-                    logger.error(f"Invalid validation response: missing required fields. Response: {validation_result}")
+                    logger.error(f"Invalid validation response: missing required fields. Response: {json_portion}")
                     return False, "Invalid validation response: missing required fields"
                     
                 if not isinstance(result["meets_requirements"], bool):
@@ -630,7 +600,7 @@ IMPORTANT:
                 return result["meets_requirements"], result["message"]
                 
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse validation response as JSON: {validation_result}")
+                logger.error(f"Failed to parse validation response as JSON: {json_portion}")
                 logger.error(f"JSON decode error: {str(e)}")
                 logger.error(f"Error location: line {e.lineno}, column {e.colno}")
                 logger.error(f"Error message: {e.msg}")
