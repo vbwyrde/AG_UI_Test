@@ -22,7 +22,7 @@ import logging
 import asyncio
 import json
 import traceback
-from typing import List, Optional, AsyncGenerator
+from typing import List, Optional, AsyncGenerator, Dict
 from pydantic import BaseModel, Field
 import ast
 import re
@@ -188,6 +188,146 @@ class CancelEvent(ControlEvent):
 class ResetEvent(ControlEvent):
     """Event indicating a reset request."""
     type: EventType = EventType.RESET
+
+class EventManager:
+    """Manages event validation, serialization, and sequence tracking."""
+    
+    def __init__(self):
+        self._sequence_counter = 0
+        self._event_history: List[BaseEvent] = []
+        self._correlation_map: Dict[str, List[BaseEvent]] = {}
+    
+    def _generate_sequence_id(self) -> int:
+        """Generate a unique sequence ID for events."""
+        self._sequence_counter += 1
+        return self._sequence_counter
+    
+    def _validate_event_sequence(self, event: BaseEvent) -> bool:
+        """Validate that the event maintains proper sequence order."""
+        if not self._event_history:
+            return True
+            
+        last_event = self._event_history[-1]
+        
+        # Validate thread and run IDs match
+        if event.thread_id != last_event.thread_id or event.run_id != last_event.run_id:
+            return False
+            
+        # Validate sequence ID is greater than last event
+        if event.sequence_id <= last_event.sequence_id:
+            return False
+            
+        return True
+    
+    def _validate_correlation(self, event: BaseEvent) -> bool:
+        """Validate correlation between related events."""
+        if not event.correlation_id:
+            return True
+            
+        if event.correlation_id not in self._correlation_map:
+            self._correlation_map[event.correlation_id] = []
+            
+        related_events = self._correlation_map[event.correlation_id]
+        
+        # Validate that correlated events maintain proper sequence
+        if related_events and event.sequence_id <= related_events[-1].sequence_id:
+            return False
+            
+        return True
+    
+    def _validate_event_type(self, event: BaseEvent) -> bool:
+        """Validate event type-specific requirements."""
+        if isinstance(event, MessageEvent):
+            return bool(event.message_id and event.role)
+        elif isinstance(event, ToolEvent):
+            return bool(event.tool_id and event.tool_name and event.parameters)
+        elif isinstance(event, StateEvent):
+            return bool(event.state_key is not None)
+        elif isinstance(event, ContextEvent):
+            return bool(event.context_key is not None)
+        return True
+    
+    def validate_event(self, event: BaseEvent) -> tuple[bool, str]:
+        """Validate an event against all validation rules."""
+        try:
+            # Validate sequence
+            if not self._validate_event_sequence(event):
+                return False, "Invalid event sequence"
+                
+            # Validate correlation
+            if not self._validate_correlation(event):
+                return False, "Invalid event correlation"
+                
+            # Validate event type specific requirements
+            if not self._validate_event_type(event):
+                return False, "Invalid event type requirements"
+                
+            return True, "Event is valid"
+            
+        except Exception as e:
+            return False, f"Validation error: {str(e)}"
+    
+    def prepare_event(self, event: BaseEvent) -> BaseEvent:
+        """Prepare an event for sending by adding required fields."""
+        # Generate sequence ID if not provided
+        if not hasattr(event, 'sequence_id') or not event.sequence_id:
+            event.sequence_id = self._generate_sequence_id()
+            
+        # Validate the event
+        is_valid, message = self.validate_event(event)
+        if not is_valid:
+            raise ValueError(f"Invalid event: {message}")
+            
+        # Store in history
+        self._event_history.append(event)
+        
+        # Update correlation map
+        if event.correlation_id:
+            if event.correlation_id not in self._correlation_map:
+                self._correlation_map[event.correlation_id] = []
+            self._correlation_map[event.correlation_id].append(event)
+            
+        return event
+    
+    def serialize_event(self, event: BaseEvent) -> str:
+        """Serialize an event to JSON string."""
+        try:
+            # Prepare the event
+            prepared_event = self.prepare_event(event)
+            
+            # Convert to JSON
+            return prepared_event.model_dump_json()
+            
+        except Exception as e:
+            raise ValueError(f"Serialization error: {str(e)}")
+    
+    def get_event_history(self, thread_id: Optional[str] = None, run_id: Optional[str] = None) -> List[BaseEvent]:
+        """Get event history filtered by thread_id and/or run_id."""
+        events = self._event_history
+        
+        if thread_id:
+            events = [e for e in events if e.thread_id == thread_id]
+        if run_id:
+            events = [e for e in events if e.run_id == run_id]
+            
+        return events
+    
+    def get_correlated_events(self, correlation_id: str) -> List[BaseEvent]:
+        """Get all events with the given correlation_id."""
+        return self._correlation_map.get(correlation_id, [])
+    
+    def clear_history(self, thread_id: Optional[str] = None, run_id: Optional[str] = None):
+        """Clear event history for specific thread/run or all history."""
+        if thread_id or run_id:
+            self._event_history = [
+                e for e in self._event_history 
+                if (not thread_id or e.thread_id != thread_id) and 
+                   (not run_id or e.run_id != run_id)
+            ]
+        else:
+            self._event_history = []
+            self._correlation_map = {}
+            self._sequence_counter = 0
 
 # Configure logging first
 logging.basicConfig(
