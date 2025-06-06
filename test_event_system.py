@@ -139,17 +139,36 @@ def test_event_validation(event_manager, thread_id, run_id, message_id):
     assert "Invalid event type requirements" in message
 
     # Test invalid event (invalid correlation)
+    # First create an event with a specific correlation ID
+    first_correlation_event = TextMessageStartEvent(
+        type=EventType.TEXT_MESSAGE_START,
+        thread_id=thread_id,
+        run_id=run_id,
+        message_id="first_msg",
+        role="assistant"
+    )
+    # Prepare it to get a correlation ID and sequence ID
+    first_correlation_event = event_manager.prepare_event(first_correlation_event)
+    print(f"\nFirst correlation event: correlation_id={first_correlation_event.correlation_id}, sequence_id={first_correlation_event.sequence_id}")
+    
+    # Now create an invalid event that tries to use the same correlation ID but with a lower sequence ID
     invalid_correlation_dict = {
         "type": EventType.TEXT_MESSAGE_START,
         "thread_id": thread_id,
         "run_id": run_id,
         "message_id": message_id,
         "role": "assistant",
-        "correlation_id": "invalid_correlation",
-        "sequence_id": 1  # Need sequence_id for correlation validation
+        "correlation_id": first_correlation_event.correlation_id,  # Use existing correlation ID
+        "sequence_id": first_correlation_event.sequence_id - 1  # Lower sequence ID - this should fail correlation validation
     }
+    print(f"\nCreating invalid correlation event with dict: {invalid_correlation_dict}")
     invalid_correlation_event = TextMessageStartEvent.model_construct(**invalid_correlation_dict)
+    print(f"Created event attributes: {invalid_correlation_event.model_dump()}")
+    print(f"Event correlation_id: {invalid_correlation_event.correlation_id}")
+    print(f"Event sequence_id: {invalid_correlation_event.sequence_id}")
+    
     is_valid, message = event_manager.validate_event(invalid_correlation_event)
+    print(f"Validation result: is_valid={is_valid}, message={message}")
     assert not is_valid, "Event with invalid correlation passed validation"
     assert "Invalid event correlation" in message
 

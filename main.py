@@ -234,23 +234,49 @@ class EventManager:
     
     def _validate_correlation(self, event: BaseEvent) -> bool:
         """Validate correlation between related events."""
+        logger.debug(f"\nValidating correlation for event:")
+        logger.debug(f"Correlation ID: {event.correlation_id}")
+        logger.debug(f"Sequence ID: {event.sequence_id}")
+        
         if not event.correlation_id:
+            logger.debug("No correlation ID, skipping correlation validation")
             return True
             
+        # If this is a new correlation group, it's valid
         if event.correlation_id not in self._correlation_map:
+            logger.debug(f"New correlation group: {event.correlation_id}")
             self._correlation_map[event.correlation_id] = []
             return True
             
         related_events = self._correlation_map[event.correlation_id]
+        logger.debug(f"Found {len(related_events)} related events")
         
         # If this event is already in the correlation map, it's valid
         if event in related_events:
+            logger.debug("Event already in correlation map")
             return True
             
-        # Validate that correlated events maintain proper sequence
-        if related_events and event.sequence_id <= related_events[-1].sequence_id:
-            return False
+        # For existing correlation groups, validate sequence
+        if related_events:
+            # Get the last event in this correlation group
+            last_event = related_events[-1]
+            logger.debug(f"Last event in group: {last_event.model_dump()}")
             
+            # If the last event has a sequence_id, validate sequence
+            if last_event.sequence_id is not None and event.sequence_id is not None:
+                logger.debug(f"Comparing sequence IDs: {event.sequence_id} <= {last_event.sequence_id}")
+                if event.sequence_id <= last_event.sequence_id:
+                    logger.debug("❌ Invalid correlation: sequence out of order")
+                    return False
+                    
+            # Validate that events in the same correlation group have the same thread/run
+            logger.debug(f"Comparing thread/run: {event.thread_id}/{event.run_id} vs {last_event.thread_id}/{last_event.run_id}")
+            if (last_event.thread_id != event.thread_id or 
+                last_event.run_id != event.run_id):
+                logger.debug("❌ Invalid correlation: thread/run mismatch")
+                return False
+            
+        logger.debug("✅ Correlation validation passed")
         return True
     
     def _validate_event_type(self, event: BaseEvent) -> bool:
@@ -258,6 +284,30 @@ class EventManager:
         logger.debug(f"Validating event type: {type(event).__name__}")
         logger.debug(f"Event attributes: {event.model_dump()}")
         
+        # First validate that the event's type matches its class
+        if isinstance(event, TextMessageStartEvent) and event.type != EventType.TEXT_MESSAGE_START:
+            logger.debug(f"Event type {event.type} does not match TextMessageStartEvent")
+            return False
+        elif isinstance(event, TextMessageContentEvent) and event.type != EventType.TEXT_MESSAGE_CONTENT:
+            logger.debug(f"Event type {event.type} does not match TextMessageContentEvent")
+            return False
+        elif isinstance(event, TextMessageEndEvent) and event.type != EventType.TEXT_MESSAGE_END:
+            logger.debug(f"Event type {event.type} does not match TextMessageEndEvent")
+            return False
+        elif isinstance(event, TextMessageErrorEvent) and event.type != EventType.TEXT_MESSAGE_ERROR:
+            logger.debug(f"Event type {event.type} does not match TextMessageErrorEvent")
+            return False
+        elif isinstance(event, RunStartedEvent) and event.type != EventType.RUN_STARTED:
+            logger.debug(f"Event type {event.type} does not match RunStartedEvent")
+            return False
+        elif isinstance(event, RunFinishedEvent) and event.type != EventType.RUN_FINISHED:
+            logger.debug(f"Event type {event.type} does not match RunFinishedEvent")
+            return False
+        elif isinstance(event, RunErrorEvent) and event.type != EventType.RUN_ERROR:
+            logger.debug(f"Event type {event.type} does not match RunErrorEvent")
+            return False
+        
+        # Then validate required fields
         if isinstance(event, MessageEvent):
             logger.debug("Event is a MessageEvent")
             # For TextMessageEndEvent, only message_id is required
@@ -332,26 +382,35 @@ class EventManager:
     def validate_event(self, event: BaseEvent) -> tuple[bool, str]:
         """Validate an event against all validation rules."""
         try:
-            logger.debug(f"Starting validation for event: {type(event).__name__}")
+            logger.debug(f"\n=== Starting validation for event ===")
+            logger.debug(f"Event type: {type(event).__name__}")
             logger.debug(f"Event data: {event.model_dump()}")
+            logger.debug(f"Sequence ID: {event.sequence_id}")
+            logger.debug(f"Correlation ID: {event.correlation_id}")
             
-            # Validate sequence only if the event has a sequence_id
-            if event.sequence_id is not None:
-                if not self._validate_event_sequence(event):
-                    logger.debug("Event failed sequence validation")
-                    return False, "Invalid event sequence"
-                
-            # Validate correlation
-            if not self._validate_correlation(event):
-                logger.debug("Event failed correlation validation")
-                return False, "Invalid event correlation"
-                
-            # Validate event type specific requirements
+            # Validate event type specific requirements first
+            logger.debug("\n--- Validating event type requirements ---")
             if not self._validate_event_type(event):
-                logger.debug("Event failed type validation")
+                logger.debug("❌ Event failed type validation")
                 return False, "Invalid event type requirements"
+            logger.debug("✅ Event type validation passed")
                 
-            logger.debug("Event passed all validation checks")
+            # Validate correlation first
+            logger.debug("\n--- Validating correlation ---")
+            if not self._validate_correlation(event):
+                logger.debug("❌ Event failed correlation validation")
+                return False, "Invalid event correlation"
+            logger.debug("✅ Correlation validation passed")
+                
+            # Only validate sequence if correlation passed
+            if event.sequence_id is not None:
+                logger.debug("\n--- Validating sequence ---")
+                if not self._validate_event_sequence(event):
+                    logger.debug("❌ Event failed sequence validation")
+                    return False, "Invalid event sequence"
+                logger.debug("✅ Sequence validation passed")
+                
+            logger.debug("\n=== Event passed all validation checks ===")
             return True, "Event is valid"
             
         except Exception as e:
