@@ -404,4 +404,93 @@ graph TD
 5. Create Pull Request
 
 ## License
-MIT License - See LICENSE file for details 
+MIT License - See LICENSE file for details
+
+## AG-UI Standard Event Types
+
+### Core Events
+1. **Run Events**
+   - `RUN_STARTED`: Initializes a new agent run
+   - `RUN_FINISHED`: Signals completion of an agent run
+   - `RUN_ERROR`: Indicates an error during execution
+
+2. **Message Events**
+   - `TEXT_MESSAGE_START`: Begins a new text message
+   - `TEXT_MESSAGE_CONTENT`: Contains message content
+   - `TEXT_MESSAGE_END`: Signals end of message
+   - `TEXT_MESSAGE_ERROR`: Indicates message processing error
+
+3. **Tool Events**
+   - `TOOL_CALL_STARTED`: Begins a tool execution
+   - `TOOL_CALL_FINISHED`: Signals tool completion
+   - `TOOL_CALL_ERROR`: Indicates tool execution error
+
+4. **State Events**
+   - `STATE_UPDATE`: Signals state change
+   - `STATE_ERROR`: Indicates state update error
+   - `CONTEXT_UPDATE`: Signals context change
+   - `CONTEXT_ERROR`: Indicates context update error
+
+5. **Control Events**
+   - `PAUSE`: Signals pause request
+   - `RESUME`: Signals resume request
+   - `CANCEL`: Signals cancellation request
+   - `RESET`: Signals reset request
+
+### Event Properties
+Each event type includes:
+- `type`: Event type identifier
+- `timestamp`: Event creation time
+- `sequence_id`: Event sequence number
+- `correlation_id`: Related events identifier
+- `thread_id`: Conversation thread identifier
+- `run_id`: Agent run identifier
+- `message_id`: Message identifier (for message events)
+- `error_details`: Error information (for error events)
+
+### Event Flow
+```mermaid
+stateDiagram-v2
+    [*] --> RUN_STARTED
+    RUN_STARTED --> TEXT_MESSAGE_START
+    TEXT_MESSAGE_START --> TEXT_MESSAGE_CONTENT
+    TEXT_MESSAGE_CONTENT --> TEXT_MESSAGE_END
+    TEXT_MESSAGE_END --> RUN_FINISHED
+    RUN_FINISHED --> [*]
+    
+    TEXT_MESSAGE_CONTENT --> TOOL_CALL_STARTED
+    TOOL_CALL_STARTED --> TOOL_CALL_FINISHED
+    TOOL_CALL_FINISHED --> TEXT_MESSAGE_CONTENT
+    
+    TEXT_MESSAGE_CONTENT --> STATE_UPDATE
+    STATE_UPDATE --> TEXT_MESSAGE_CONTENT
+    
+    TEXT_MESSAGE_CONTENT --> ERROR_EVENT
+    ERROR_EVENT --> TEXT_MESSAGE_END
+```
+
+### Event Usage Guidelines
+1. **Event Sequencing**
+   - Events must maintain proper sequence order
+   - Each event must have a unique sequence_id
+   - Related events must share correlation_id
+
+2. **Error Handling**
+   - All errors must be reported via appropriate error events
+   - Error events must include detailed error information
+   - Error events must maintain proper event sequence
+
+3. **State Management**
+   - State updates must be atomic
+   - State changes must be reported via STATE_UPDATE
+   - State errors must be reported via STATE_ERROR
+
+4. **Tool Integration**
+   - Tool calls must be reported via TOOL_CALL events
+   - Tool errors must be reported via TOOL_CALL_ERROR
+   - Tool results must be reported via TOOL_CALL_FINISHED
+
+5. **Control Flow**
+   - Control events can interrupt normal flow
+   - Control events must be acknowledged
+   - Control events must maintain state consistency 

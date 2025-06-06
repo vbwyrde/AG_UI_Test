@@ -5,7 +5,6 @@ from fastapi.responses import StreamingResponse
 from ag_ui.core import (
     RunAgentInput,
     Message,
-    EventType,
     RunStartedEvent,
     RunFinishedEvent,
     TextMessageStartEvent,
@@ -24,7 +23,7 @@ import asyncio
 import json
 import traceback
 from typing import List, Optional, AsyncGenerator
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import ast
 import re
 import importlib
@@ -33,6 +32,162 @@ import httpx
 from dotenv import load_dotenv
 from config import config
 import time
+from enum import Enum, auto
+
+class EventType(str, Enum):
+    """Enhanced AG-UI Event Types with all standard events."""
+    
+    # Run Events
+    RUN_STARTED = "run_started"
+    RUN_FINISHED = "run_finished"
+    RUN_ERROR = "run_error"
+    
+    # Message Events
+    TEXT_MESSAGE_START = "text_message_start"
+    TEXT_MESSAGE_CONTENT = "text_message_content"
+    TEXT_MESSAGE_END = "text_message_end"
+    TEXT_MESSAGE_ERROR = "text_message_error"
+    
+    # Tool Events
+    TOOL_CALL_STARTED = "tool_call_started"
+    TOOL_CALL_FINISHED = "tool_call_finished"
+    TOOL_CALL_ERROR = "tool_call_error"
+    
+    # State Events
+    STATE_UPDATE = "state_update"
+    STATE_ERROR = "state_error"
+    CONTEXT_UPDATE = "context_update"
+    CONTEXT_ERROR = "context_error"
+    
+    # Control Events
+    PAUSE = "pause"
+    RESUME = "resume"
+    CANCEL = "cancel"
+    RESET = "reset"
+
+class BaseEvent(BaseModel):
+    """Base class for all AG-UI events."""
+    type: EventType
+    timestamp: float = Field(default_factory=time.time)
+    sequence_id: int
+    correlation_id: Optional[str] = None
+    thread_id: str
+    run_id: str
+
+class RunEvent(BaseEvent):
+    """Base class for run-related events."""
+    pass
+
+class RunStartedEvent(RunEvent):
+    """Event indicating the start of an agent run."""
+    type: EventType = EventType.RUN_STARTED
+    agent_metadata: Optional[dict] = None
+    configuration: Optional[dict] = None
+
+class RunFinishedEvent(RunEvent):
+    """Event indicating the completion of an agent run."""
+    type: EventType = EventType.RUN_FINISHED
+    completion_status: str
+    performance_metrics: Optional[dict] = None
+
+class RunErrorEvent(RunEvent):
+    """Event indicating an error during agent run."""
+    type: EventType = EventType.RUN_ERROR
+    error_details: dict
+
+class MessageEvent(BaseEvent):
+    """Base class for message-related events."""
+    message_id: str
+    role: str
+
+class TextMessageStartEvent(MessageEvent):
+    """Event indicating the start of a text message."""
+    type: EventType = EventType.TEXT_MESSAGE_START
+
+class TextMessageContentEvent(MessageEvent):
+    """Event containing text message content."""
+    type: EventType = EventType.TEXT_MESSAGE_CONTENT
+    delta: str
+
+class TextMessageEndEvent(MessageEvent):
+    """Event indicating the end of a text message."""
+    type: EventType = EventType.TEXT_MESSAGE_END
+
+class TextMessageErrorEvent(MessageEvent):
+    """Event indicating an error in message processing."""
+    type: EventType = EventType.TEXT_MESSAGE_ERROR
+    error_details: dict
+
+class ToolEvent(BaseEvent):
+    """Base class for tool-related events."""
+    tool_id: str
+    tool_name: str
+    parameters: dict
+
+class ToolCallStartedEvent(ToolEvent):
+    """Event indicating the start of a tool call."""
+    type: EventType = EventType.TOOL_CALL_STARTED
+
+class ToolCallFinishedEvent(ToolEvent):
+    """Event indicating the completion of a tool call."""
+    type: EventType = EventType.TOOL_CALL_FINISHED
+    result: dict
+    execution_metrics: Optional[dict] = None
+
+class ToolCallErrorEvent(ToolEvent):
+    """Event indicating an error in tool execution."""
+    type: EventType = EventType.TOOL_CALL_ERROR
+    error_details: dict
+
+class StateEvent(BaseEvent):
+    """Base class for state-related events."""
+    state_key: str
+    state_value: Any
+
+class StateUpdateEvent(StateEvent):
+    """Event indicating a state update."""
+    type: EventType = EventType.STATE_UPDATE
+    previous_value: Optional[Any] = None
+
+class StateErrorEvent(StateEvent):
+    """Event indicating an error in state update."""
+    type: EventType = EventType.STATE_ERROR
+    error_details: dict
+
+class ContextEvent(BaseEvent):
+    """Base class for context-related events."""
+    context_key: str
+    context_value: Any
+
+class ContextUpdateEvent(ContextEvent):
+    """Event indicating a context update."""
+    type: EventType = EventType.CONTEXT_UPDATE
+    previous_value: Optional[Any] = None
+
+class ContextErrorEvent(ContextEvent):
+    """Event indicating an error in context update."""
+    type: EventType = EventType.CONTEXT_ERROR
+    error_details: dict
+
+class ControlEvent(BaseEvent):
+    """Base class for control-related events."""
+    reason: Optional[str] = None
+
+class PauseEvent(ControlEvent):
+    """Event indicating a pause request."""
+    type: EventType = EventType.PAUSE
+
+class ResumeEvent(ControlEvent):
+    """Event indicating a resume request."""
+    type: EventType = EventType.RESUME
+
+class CancelEvent(ControlEvent):
+    """Event indicating a cancellation request."""
+    type: EventType = EventType.CANCEL
+
+class ResetEvent(ControlEvent):
+    """Event indicating a reset request."""
+    type: EventType = EventType.RESET
 
 # Configure logging first
 logging.basicConfig(
