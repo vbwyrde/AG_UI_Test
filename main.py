@@ -5,11 +5,6 @@ from fastapi.responses import StreamingResponse
 from ag_ui.core import (
     RunAgentInput,
     Message,
-    RunStartedEvent,
-    RunFinishedEvent,
-    TextMessageStartEvent,
-    TextMessageContentEvent,
-    TextMessageEndEvent,
     State,
     Context,
     Tool,
@@ -22,7 +17,7 @@ import logging
 import asyncio
 import json
 import traceback
-from typing import List, Optional, AsyncGenerator, Dict
+from typing import List, Optional, AsyncGenerator, Dict, Any
 from pydantic import BaseModel, Field
 import ast
 import re
@@ -33,6 +28,9 @@ from dotenv import load_dotenv
 from config import config
 import time
 from enum import Enum, auto
+import sys
+import socket
+import psutil
 
 class EventType(str, Enum):
     """Enhanced AG-UI Event Types with all standard events."""
@@ -69,7 +67,7 @@ class BaseEvent(BaseModel):
     """Base class for all AG-UI events."""
     type: EventType
     timestamp: float = Field(default_factory=time.time)
-    sequence_id: int
+    sequence_id: Optional[int] = None
     correlation_id: Optional[str] = None
     thread_id: str
     run_id: str
@@ -112,6 +110,7 @@ class TextMessageContentEvent(MessageEvent):
 class TextMessageEndEvent(MessageEvent):
     """Event indicating the end of a text message."""
     type: EventType = EventType.TEXT_MESSAGE_END
+    role: Optional[str] = None
 
 class TextMessageErrorEvent(MessageEvent):
     """Event indicating an error in message processing."""
@@ -202,16 +201,30 @@ class EventManager:
         self._sequence_counter += 1
         return self._sequence_counter
     
+    def _generate_correlation_id(self) -> str:
+        """Generate a unique correlation ID for events."""
+        return str(uuid.uuid4())
+    
     def _validate_event_sequence(self, event: BaseEvent) -> bool:
         """Validate that the event maintains proper sequence order."""
+        # First event in a thread/run is always valid
         if not self._event_history:
             return True
             
-        last_event = self._event_history[-1]
-        
-        # Validate thread and run IDs match
-        if event.thread_id != last_event.thread_id or event.run_id != last_event.run_id:
-            return False
+        # Find the last event for this thread/run
+        last_event = None
+        for e in reversed(self._event_history):
+            if e.thread_id == event.thread_id and e.run_id == event.run_id:
+                last_event = e
+                break
+                
+        # If no previous event for this thread/run, sequence is valid
+        if not last_event:
+            return True
+            
+        # If this is the same event (already in history), it's valid
+        if event in self._event_history:
+            return True
             
         # Validate sequence ID is greater than last event
         if event.sequence_id <= last_event.sequence_id:
@@ -226,9 +239,14 @@ class EventManager:
             
         if event.correlation_id not in self._correlation_map:
             self._correlation_map[event.correlation_id] = []
+            return True
             
         related_events = self._correlation_map[event.correlation_id]
         
+        # If this event is already in the correlation map, it's valid
+        if event in related_events:
+            return True
+            
         # Validate that correlated events maintain proper sequence
         if related_events and event.sequence_id <= related_events[-1].sequence_id:
             return False
@@ -237,41 +255,118 @@ class EventManager:
     
     def _validate_event_type(self, event: BaseEvent) -> bool:
         """Validate event type-specific requirements."""
+        logger.debug(f"Validating event type: {type(event).__name__}")
+        logger.debug(f"Event attributes: {event.model_dump()}")
+        
         if isinstance(event, MessageEvent):
-            return bool(event.message_id and event.role)
+            logger.debug("Event is a MessageEvent")
+            # For TextMessageEndEvent, only message_id is required
+            if isinstance(event, TextMessageStartEvent):
+                logger.debug(f"Validating TextMessageStartEvent")
+                # Check if required fields exist and are not None
+                if not hasattr(event, 'message_id') or not hasattr(event, 'role'):
+                    logger.debug("Missing required fields: message_id or role")
+                    return False
+                return event.message_id is not None and event.role is not None
+            elif isinstance(event, TextMessageContentEvent):
+                logger.debug(f"Validating TextMessageContentEvent")
+                if not hasattr(event, 'message_id') or not hasattr(event, 'role') or not hasattr(event, 'delta'):
+                    logger.debug("Missing required fields: message_id, role, or delta")
+                    return False
+                return event.message_id is not None and event.role is not None and event.delta is not None
+            elif isinstance(event, TextMessageEndEvent):
+                logger.debug(f"Validating TextMessageEndEvent")
+                if not hasattr(event, 'message_id'):
+                    logger.debug("Missing required field: message_id")
+                    return False
+                return event.message_id is not None
+            elif isinstance(event, TextMessageErrorEvent):
+                logger.debug(f"Validating TextMessageErrorEvent")
+                if not hasattr(event, 'message_id') or not hasattr(event, 'role') or not hasattr(event, 'error_details'):
+                    logger.debug("Missing required fields: message_id, role, or error_details")
+                    return False
+                return event.message_id is not None and event.role is not None and event.error_details is not None
         elif isinstance(event, ToolEvent):
-            return bool(event.tool_id and event.tool_name and event.parameters)
+            logger.debug(f"Validating ToolEvent")
+            if not hasattr(event, 'tool_id') or not hasattr(event, 'tool_name') or not hasattr(event, 'parameters'):
+                logger.debug("Missing required fields: tool_id, tool_name, or parameters")
+                return False
+            return (event.tool_id is not None and 
+                   event.tool_name is not None and 
+                   event.parameters is not None)
         elif isinstance(event, StateEvent):
-            return bool(event.state_key is not None)
+            logger.debug(f"Validating StateEvent")
+            if not hasattr(event, 'state_key'):
+                logger.debug("Missing required field: state_key")
+                return False
+            return event.state_key is not None
         elif isinstance(event, ContextEvent):
-            return bool(event.context_key is not None)
+            logger.debug(f"Validating ContextEvent")
+            if not hasattr(event, 'context_key'):
+                logger.debug("Missing required field: context_key")
+                return False
+            return event.context_key is not None
+        elif isinstance(event, RunEvent):
+            logger.debug("Event is a RunEvent")
+            # For RunStartedEvent, agent_metadata is optional
+            if isinstance(event, RunStartedEvent):
+                logger.debug("Validating RunStartedEvent (no required fields)")
+                return True
+            # For RunFinishedEvent, completion_status is required
+            elif isinstance(event, RunFinishedEvent):
+                logger.debug(f"Validating RunFinishedEvent")
+                if not hasattr(event, 'completion_status'):
+                    logger.debug("Missing required field: completion_status")
+                    return False
+                return event.completion_status is not None
+            # For RunErrorEvent, error_details is required
+            elif isinstance(event, RunErrorEvent):
+                logger.debug(f"Validating RunErrorEvent")
+                if not hasattr(event, 'error_details'):
+                    logger.debug("Missing required field: error_details")
+                    return False
+                return event.error_details is not None
+        logger.debug("No specific validation rules found, returning True")
         return True
-    
+
     def validate_event(self, event: BaseEvent) -> tuple[bool, str]:
         """Validate an event against all validation rules."""
         try:
-            # Validate sequence
-            if not self._validate_event_sequence(event):
-                return False, "Invalid event sequence"
+            logger.debug(f"Starting validation for event: {type(event).__name__}")
+            logger.debug(f"Event data: {event.model_dump()}")
+            
+            # Validate sequence only if the event has a sequence_id
+            if event.sequence_id is not None:
+                if not self._validate_event_sequence(event):
+                    logger.debug("Event failed sequence validation")
+                    return False, "Invalid event sequence"
                 
             # Validate correlation
             if not self._validate_correlation(event):
+                logger.debug("Event failed correlation validation")
                 return False, "Invalid event correlation"
                 
             # Validate event type specific requirements
             if not self._validate_event_type(event):
+                logger.debug("Event failed type validation")
                 return False, "Invalid event type requirements"
                 
+            logger.debug("Event passed all validation checks")
             return True, "Event is valid"
             
         except Exception as e:
+            logger.error(f"Validation error: {str(e)}", exc_info=True)
             return False, f"Validation error: {str(e)}"
     
     def prepare_event(self, event: BaseEvent) -> BaseEvent:
         """Prepare an event for sending by adding required fields."""
         # Generate sequence ID if not provided
-        if not hasattr(event, 'sequence_id') or not event.sequence_id:
+        if event.sequence_id is None:
             event.sequence_id = self._generate_sequence_id()
+            
+        # Generate correlation ID if not provided
+        if event.correlation_id is None:
+            event.correlation_id = self._generate_correlation_id()
             
         # Validate the event
         is_valid, message = self.validate_event(event)
@@ -292,11 +387,12 @@ class EventManager:
     def serialize_event(self, event: BaseEvent) -> str:
         """Serialize an event to JSON string."""
         try:
-            # Prepare the event
-            prepared_event = self.prepare_event(event)
+            # Only prepare the event if it hasn't been prepared yet
+            if event.sequence_id is None or event.correlation_id is None:
+                event = self.prepare_event(event)
             
             # Convert to JSON
-            return prepared_event.model_dump_json()
+            return event.model_dump_json()
             
         except Exception as e:
             raise ValueError(f"Serialization error: {str(e)}")
@@ -357,6 +453,9 @@ reload(config)
 from config import config
 
 app = FastAPI()
+
+# Initialize EventManager
+event_manager = EventManager()
 
 # Configure CORS
 app.add_middleware(
@@ -1132,7 +1231,8 @@ orchestrator = OrchestratorAgent()
 def format_sse_event(event: BaseModel) -> str:
     """Format an event as a Server-Sent Event."""
     try:
-        event_json = event.model_dump_json()
+        # Use EventManager to serialize the event
+        event_json = event_manager.serialize_event(event)
         formatted = f"data: {event_json}\n\n"
         logger.debug(f"Formatted SSE event: {formatted}")
         return formatted
@@ -1151,12 +1251,42 @@ async def agent_endpoint(input_data: RunAgentInput):
     async def event_generator() -> AsyncGenerator[str, None]:
         message_id = None
         try:
-            # Send run started event
+            # Create enhanced run started event with metadata
             run_started = RunStartedEvent(
                 type=EventType.RUN_STARTED,
                 thread_id=input_data.thread_id,
-                run_id=input_data.run_id
+                run_id=input_data.run_id,
+                agent_metadata={
+                    "name": orchestrator.name,
+                    "description": orchestrator.description,
+                    "capabilities": orchestrator.capabilities,
+                    "start_time": start_time,
+                    "environment": {
+                        "python_version": sys.version,
+                        "platform": sys.platform,
+                        "hostname": socket.gethostname()
+                    }
+                },
+                configuration={
+                    "researcher_config": {
+                        "endpoint": orchestrator.researcher.llm_config.endpoint,
+                        "is_local": orchestrator.researcher.llm_config.is_local,
+                        "model": orchestrator.researcher.llm_config.model
+                    },
+                    "writer_config": {
+                        "endpoint": orchestrator.writer.llm_config.endpoint,
+                        "is_local": orchestrator.writer.llm_config.is_local,
+                        "model": orchestrator.writer.llm_config.model
+                    }
+                }
             )
+            
+            # Validate and prepare the event
+            is_valid, error_msg = event_manager.validate_event(run_started)
+            if not is_valid:
+                raise ValueError(f"Invalid RunStartedEvent: {error_msg}")
+            run_started = event_manager.prepare_event(run_started)
+            
             logger.info("Sending RUN_STARTED event")
             yield format_sse_event(run_started)
 
@@ -1164,12 +1294,22 @@ async def agent_endpoint(input_data: RunAgentInput):
             message_id = str(uuid.uuid4())
             logger.info(f"Generated message_id: {message_id}")
 
-            # Send text message start event
+            # Send text message start event with correlation
             text_start = TextMessageStartEvent(
                 type=EventType.TEXT_MESSAGE_START,
                 message_id=message_id,
-                role="assistant"
+                role="assistant",
+                thread_id=input_data.thread_id,
+                run_id=input_data.run_id,
+                correlation_id=run_started.correlation_id
             )
+            
+            # Validate and prepare the event
+            is_valid, error_msg = event_manager.validate_event(text_start)
+            if not is_valid:
+                raise ValueError(f"Invalid TextMessageStartEvent: {error_msg}")
+            text_start = event_manager.prepare_event(text_start)
+            
             logger.info("Sending TEXT_MESSAGE_START event")
             yield format_sse_event(text_start)
 
@@ -1187,25 +1327,59 @@ async def agent_endpoint(input_data: RunAgentInput):
                 content_event = TextMessageContentEvent(
                     type=EventType.TEXT_MESSAGE_CONTENT,
                     message_id=message_id,
-                    delta=response + timing_info
+                    delta=response + timing_info,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id,
+                    correlation_id=run_started.correlation_id
                 )
+                
+                # Validate and prepare the event
+                is_valid, error_msg = event_manager.validate_event(content_event)
+                if not is_valid:
+                    raise ValueError(f"Invalid TextMessageContentEvent: {error_msg}")
+                content_event = event_manager.prepare_event(content_event)
+                
                 logger.info("Sending TEXT_MESSAGE_CONTENT event")
                 yield format_sse_event(content_event)
 
                 # Send text message end event
                 text_end = TextMessageEndEvent(
                     type=EventType.TEXT_MESSAGE_END,
-                    message_id=message_id
+                    message_id=message_id,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id,
+                    correlation_id=run_started.correlation_id
                 )
+                
+                # Validate and prepare the event
+                is_valid, error_msg = event_manager.validate_event(text_end)
+                if not is_valid:
+                    raise ValueError(f"Invalid TextMessageEndEvent: {error_msg}")
+                text_end = event_manager.prepare_event(text_end)
+                
                 logger.info("Sending TEXT_MESSAGE_END event")
                 yield format_sse_event(text_end)
 
-                # Send run finished event
+                # Send run finished event with performance metrics
                 run_finished = RunFinishedEvent(
                     type=EventType.RUN_FINISHED,
                     thread_id=input_data.thread_id,
-                    run_id=input_data.run_id
+                    run_id=input_data.run_id,
+                    correlation_id=run_started.correlation_id,
+                    completion_status="success",
+                    performance_metrics={
+                        "total_time": elapsed_time,
+                        "message_length": len(response),
+                        "memory_usage": psutil.Process().memory_info().rss / 1024 / 1024  # MB
+                    }
                 )
+                
+                # Validate and prepare the event
+                is_valid, error_msg = event_manager.validate_event(run_finished)
+                if not is_valid:
+                    raise ValueError(f"Invalid RunFinishedEvent: {error_msg}")
+                run_finished = event_manager.prepare_event(run_finished)
+                
                 logger.info("Sending RUN_FINISHED event")
                 yield format_sse_event(run_finished)
             except Exception as e:
@@ -1216,24 +1390,58 @@ async def agent_endpoint(input_data: RunAgentInput):
                 error_event = TextMessageContentEvent(
                     type=EventType.TEXT_MESSAGE_CONTENT,
                     message_id=message_id,
-                    delta=error_message
+                    delta=error_message,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id,
+                    correlation_id=run_started.correlation_id
                 )
-                logger.info("Sending error event")
-                yield format_sse_event(error_event)
+                
+                # Validate and prepare the event
+                is_valid, error_msg = event_manager.validate_event(error_event)
+                if not is_valid:
+                    logger.error(f"Invalid error event: {error_msg}")
+                else:
+                    error_event = event_manager.prepare_event(error_event)
+                    logger.info("Sending error event")
+                    yield format_sse_event(error_event)
 
                 # Send end events even if there was an error
                 text_end = TextMessageEndEvent(
                     type=EventType.TEXT_MESSAGE_END,
-                    message_id=message_id
+                    message_id=message_id,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id,
+                    correlation_id=run_started.correlation_id
                 )
-                yield format_sse_event(text_end)
+                
+                # Validate and prepare the event
+                is_valid, error_msg = event_manager.validate_event(text_end)
+                if not is_valid:
+                    logger.error(f"Invalid end event: {error_msg}")
+                else:
+                    text_end = event_manager.prepare_event(text_end)
+                    yield format_sse_event(text_end)
 
                 run_finished = RunFinishedEvent(
                     type=EventType.RUN_FINISHED,
                     thread_id=input_data.thread_id,
-                    run_id=input_data.run_id
+                    run_id=input_data.run_id,
+                    correlation_id=run_started.correlation_id,
+                    completion_status="error",
+                    performance_metrics={
+                        "total_time": elapsed_time,
+                        "error_type": type(e).__name__,
+                        "memory_usage": psutil.Process().memory_info().rss / 1024 / 1024  # MB
+                    }
                 )
-                yield format_sse_event(run_finished)
+                
+                # Validate and prepare the event
+                is_valid, error_msg = event_manager.validate_event(run_finished)
+                if not is_valid:
+                    logger.error(f"Invalid run finished event: {error_msg}")
+                else:
+                    run_finished = event_manager.prepare_event(run_finished)
+                    yield format_sse_event(run_finished)
         except Exception as e:
             logger.error(f"Error in event_generator: {str(e)}", exc_info=True)
             logger.error(f"Stack trace: {traceback.format_exc()}")
@@ -1247,37 +1455,62 @@ async def agent_endpoint(input_data: RunAgentInput):
                     error_event = TextMessageContentEvent(
                         type=EventType.TEXT_MESSAGE_CONTENT,
                         message_id=message_id,
-                        delta=error_message
+                        delta=error_message,
+                        thread_id=input_data.thread_id,
+                        run_id=input_data.run_id,
+                        correlation_id=run_started.correlation_id if 'run_started' in locals() else None
                     )
-                    yield format_sse_event(error_event)
+                    
+                    # Validate and prepare the event
+                    is_valid, error_msg = event_manager.validate_event(error_event)
+                    if not is_valid:
+                        logger.error(f"Invalid error event: {error_msg}")
+                    else:
+                        error_event = event_manager.prepare_event(error_event)
+                        yield format_sse_event(error_event)
                     
                     # Try to send end events
                     text_end = TextMessageEndEvent(
                         type=EventType.TEXT_MESSAGE_END,
-                        message_id=message_id
+                        message_id=message_id,
+                        thread_id=input_data.thread_id,
+                        run_id=input_data.run_id,
+                        correlation_id=run_started.correlation_id if 'run_started' in locals() else None
                     )
-                    yield format_sse_event(text_end)
+                    
+                    # Validate and prepare the event
+                    is_valid, error_msg = event_manager.validate_event(text_end)
+                    if not is_valid:
+                        logger.error(f"Invalid end event: {error_msg}")
+                    else:
+                        text_end = event_manager.prepare_event(text_end)
+                        yield format_sse_event(text_end)
                     
                     run_finished = RunFinishedEvent(
                         type=EventType.RUN_FINISHED,
                         thread_id=input_data.thread_id,
-                        run_id=input_data.run_id
+                        run_id=input_data.run_id,
+                        correlation_id=run_started.correlation_id if 'run_started' in locals() else None,
+                        completion_status="error",
+                        performance_metrics={
+                            "total_time": elapsed_time,
+                            "error_type": type(e).__name__,
+                            "memory_usage": psutil.Process().memory_info().rss / 1024 / 1024  # MB
+                        }
                     )
-                    yield format_sse_event(run_finished)
+                    
+                    # Validate and prepare the event
+                    is_valid, error_msg = event_manager.validate_event(run_finished)
+                    if not is_valid:
+                        logger.error(f"Invalid run finished event: {error_msg}")
+                    else:
+                        run_finished = event_manager.prepare_event(run_finished)
+                        yield format_sse_event(run_finished)
                 except Exception as inner_e:
                     logger.error(f"Error sending error events: {str(inner_e)}", exc_info=True)
+                    logger.error(f"Stack trace: {traceback.format_exc()}")
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-            "Content-Type": "text/event-stream",
-            "Transfer-Encoding": "chunked"
-        }
-    )
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/")
 async def root():
