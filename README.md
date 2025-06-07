@@ -11,13 +11,14 @@ A FastAPI-based system that demonstrates the implementation of the Agent User In
 - Support for both cloud-based and local LLM endpoints
 - Language-specific code validation and generation
 - Comprehensive error handling with AG_UI error events
+- Optional DSYP (DSPy) integration for advanced AI workflows
 
 ## Prerequisites
 
 - Python 3.8 or higher
 - pip (Python package manager)
-- Access to an LLM API (OpenAI, local LM Studio, etc.)
-- AG_UI Protocol package (`ag_ui_protocol`)
+- Access to an LLM API (OpenAI, Anthropic, local LM Studio, etc.)
+- AG_UI Protocol package (`ag_ui_protocol>=0.1.5`)
 
 ## Installation
 
@@ -38,11 +39,13 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+**Note:** If you plan to use the DSYP12.py module, uncomment the optional dependencies in requirements.txt before installation.
+
 ## Configuration
 
 The system uses environment variables for configuration. Create a `.env` file in the project root:
 
-### For Cloud-based LLMs (e.g., OpenAI)
+### For Cloud-based LLMs (e.g., OpenAI, Anthropic)
 
 ```bash
 # Researcher Agent Configuration
@@ -79,7 +82,7 @@ PROMPT_WRITER_LLM_IS_LOCAL=false
 # Researcher Agent Configuration
 RESEARCHER_LLM_ENDPOINT=http://localhost:1234/v1/chat/completions
 RESEARCHER_LLM_IS_LOCAL=true
-RESEARCHER_LLM_MODEL=local-model-name
+RESEARCHER_LLM_MODEL=Qwen_QwQ-32B-Q6_K_L
 RESEARCHER_LLM_TEMPERATURE=0.7
 RESEARCHER_LLM_MAX_TOKENS=1000
 RESEARCHER_LLM_TIMEOUT=30
@@ -87,7 +90,7 @@ RESEARCHER_LLM_TIMEOUT=30
 # Writer Agent Configuration
 WRITER_LLM_ENDPOINT=http://localhost:1234/v1/chat/completions
 WRITER_LLM_IS_LOCAL=true
-WRITER_LLM_MODEL=local-model-name
+WRITER_LLM_MODEL=Qwen_QwQ-32B-Q6_K_L
 WRITER_LLM_TEMPERATURE=0.7
 WRITER_LLM_MAX_TOKENS=2000
 WRITER_LLM_TIMEOUT=30
@@ -95,7 +98,7 @@ WRITER_LLM_TIMEOUT=30
 # PromptWriter Agent Configuration
 PROMPT_WRITER_LLM_ENDPOINT=http://localhost:1234/v1/chat/completions
 PROMPT_WRITER_LLM_IS_LOCAL=true
-PROMPT_WRITER_LLM_MODEL=local-model-name
+PROMPT_WRITER_LLM_MODEL=Qwen_QwQ-32B-Q6_K_L
 PROMPT_WRITER_LLM_TEMPERATURE=0.7
 PROMPT_WRITER_LLM_MAX_TOKENS=1000
 PROMPT_WRITER_LLM_TIMEOUT=30
@@ -143,21 +146,38 @@ The system implements the AG_UI Protocol with the following components:
 
 ### Event System
 - Uses Server-Sent Events (SSE) for real-time communication
-- Implements AG_UI event hierarchy
+- Implements AG_UI event hierarchy with enhanced features
 - Handles event encoding and streaming
 - Manages message IDs and event sequencing
+- Comprehensive event validation and correlation
 
 ### Agent System
-- Orchestrator Agent: Coordinates the workflow and event generation
-- Researcher Agent: Provides research capabilities
-- Writer Agent: Generates and validates code
-- PromptWriter Agent: Creates language-specific prompts
+- **Orchestrator Agent**: Coordinates the workflow and event generation
+- **Researcher Agent**: Provides research capabilities
+- **Writer Agent**: Generates and validates code
+- **PromptWriter Agent**: Creates language-specific prompts
 
 ### Code Validation
-- Language-specific validators
-- Safety checks
-- Requirement validation
+- Language-specific validators (Python, VB.NET, etc.)
+- Safety checks and requirement validation
 - Module dependency checking
+- AST-based syntax validation
+
+### DSYP Integration (Optional)
+- Advanced AI workflows using DSPy framework
+- Multi-hop reasoning capabilities
+- Task generation and validation
+- Code execution and testing
+
+## Key Dependencies
+
+- **ag_ui_protocol**: Core AG-UI Protocol implementation
+- **fastapi**: Web framework for API endpoints
+- **uvicorn**: ASGI server for running the application
+- **pydantic**: Data validation and modeling
+- **httpx**: HTTP client for LLM API calls
+- **websockets**: WebSocket support for real-time features
+- **openai/anthropic**: LLM client libraries
 
 ## Error Handling
 
@@ -168,6 +188,7 @@ The system implements comprehensive error handling using AG_UI error events:
 - Invalid configurations
 - Language-specific validation errors
 - Stream processing errors
+- Event correlation and sequencing errors
 
 ## Development
 
@@ -180,36 +201,39 @@ The system implements comprehensive error handling using AG_UI error events:
 
 ### Testing
 
-1. Create a test environment:
+Run the test suite:
 ```bash
-python -m venv test-env
-source test-env/bin/activate  # On Windows: test-env\Scripts\activate
-pip install -r requirements.txt
+pytest test_event_system.py -v
 ```
 
-2. Run tests:
+For testing LLM connections:
 ```bash
-# Add test commands here when tests are implemented
+python test_llm.py
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. LLM API Connection Issues
-   - Verify API keys and endpoints
+1. **LLM API Connection Issues**
+   - Verify API keys and endpoints in `.env`
    - Check network connectivity
    - Ensure correct configuration for local/cloud endpoints
 
-2. Event Stream Issues
+2. **Event Stream Issues**
    - Check SSE connection
-   - Verify event formatting
-   - Monitor event sequencing
+   - Verify event formatting and sequencing
+   - Monitor event correlation IDs
 
-3. Configuration Problems
+3. **Configuration Problems**
    - Ensure all required environment variables are set
-   - Verify .env file format
+   - Verify `.env` file format and location
    - Check for typos in configuration values
+
+4. **Dependency Issues**
+   - Ensure virtual environment is activated
+   - Run `pip install -r requirements.txt` to install all dependencies
+   - Check if `ag_ui_protocol` package is properly installed
 
 ## Contributing
 

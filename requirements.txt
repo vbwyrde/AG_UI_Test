@@ -1,9 +1,51 @@
-fastapi>=0.68.0
-uvicorn>=0.15.0
-pydantic>=1.8.0
-python-dotenv>=0.19.0
-httpx>=0.23.0
+# Core FastAPI and web framework dependencies
+fastapi>=0.115.12
+uvicorn>=0.34.2
+starlette>=0.46.2
+
+# Data validation and modeling
+pydantic>=2.11.5
+annotated-types>=0.7.0
+pydantic-core>=2.33.2
+
+# Configuration and environment
+python-dotenv>=1.1.0
+
+# HTTP client and async support
+httpx>=0.28.1
+httpcore>=1.0.9
+anyio>=4.9.0
+sniffio>=1.3.1
+
+# AI and LLM clients
 openai>=0.27.0
+anthropic>=0.52.1
+
+# AG-UI Protocol (Critical for this application)
+ag-ui-protocol>=0.1.5
+
+# WebSocket support for real-time communication
+websockets>=15.0.1
+
+# Utility libraries
+click>=8.2.1
+h11>=0.16.0
+idna>=3.10
+jiter>=0.10.0
+typing-extensions>=4.13.2
+typing-inspection>=0.4.1
+certifi>=2025.4.26
+distro>=1.9.0
+colorama>=0.4.6
+
+# Testing framework
 pytest>=7.0.0
 pytest-asyncio>=0.18.0
-pytest-cov>=3.0.0 
+pytest-cov>=3.0.0
+
+# Optional dependencies for DSYP12.py module (if used)
+# Uncomment these if you plan to use the DSYP12.py functionality
+# dspy>=2.4.9
+# transformers>=4.30.0
+# pylint>=2.17.0
+# torch>=2.0.0 
