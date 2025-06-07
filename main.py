@@ -33,54 +33,157 @@ import socket
 import psutil
 
 class EventType(str, Enum):
-    """Enhanced AG-UI Event Types with all standard events."""
+    """AG-UI Event Types aligned with official specification."""
     
-    # Run Events
-    RUN_STARTED = "run_started"
-    RUN_FINISHED = "run_finished"
-    RUN_ERROR = "run_error"
+    # Run Events - Official AG-UI specification
+    RUN_STARTED = "RUN_STARTED"
+    RUN_FINISHED = "RUN_FINISHED"
+    RUN_ERROR = "RUN_ERROR"
     
-    # Message Events
-    TEXT_MESSAGE_START = "text_message_start"
-    TEXT_MESSAGE_CONTENT = "text_message_content"
-    TEXT_MESSAGE_END = "text_message_end"
-    TEXT_MESSAGE_ERROR = "text_message_error"
+    # Step Events - Official AG-UI specification  
+    STEP_STARTED = "STEP_STARTED"
+    STEP_FINISHED = "STEP_FINISHED"
     
-    # Tool Events
-    TOOL_CALL_STARTED = "tool_call_started"
-    TOOL_CALL_FINISHED = "tool_call_finished"
-    TOOL_CALL_ERROR = "tool_call_error"
+    # Message Events - Official AG-UI specification
+    TEXT_MESSAGE_START = "TEXT_MESSAGE_START"
+    TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT"
+    TEXT_MESSAGE_END = "TEXT_MESSAGE_END"
     
-    # State Events
-    STATE_UPDATE = "state_update"
-    STATE_ERROR = "state_error"
-    CONTEXT_UPDATE = "context_update"
-    CONTEXT_ERROR = "context_error"
+    # Tool Events - Official AG-UI specification
+    TOOL_CALL_START = "TOOL_CALL_START"
+    TOOL_CALL_ARGS = "TOOL_CALL_ARGS"
+    TOOL_CALL_END = "TOOL_CALL_END"
     
-    # Control Events
-    PAUSE = "pause"
-    RESUME = "resume"
-    CANCEL = "cancel"
-    RESET = "reset"
+    # State Events - Official AG-UI specification
+    STATE_SNAPSHOT = "STATE_SNAPSHOT"
+    STATE_DELTA = "STATE_DELTA"
+    MESSAGES_SNAPSHOT = "MESSAGES_SNAPSHOT"
+    
+    # Special Events - Official AG-UI specification
+    RAW = "RAW"
+    CUSTOM = "CUSTOM"
+    
+    # Extended Events for Enhanced Functionality
+    TEXT_MESSAGE_ERROR = "TEXT_MESSAGE_ERROR"
+    TOOL_CALL_STARTED = "TOOL_CALL_STARTED"  # Backward compatibility alias
+    TOOL_CALL_FINISHED = "TOOL_CALL_FINISHED"  # Backward compatibility alias
+    TOOL_CALL_ERROR = "TOOL_CALL_ERROR"
+    STATE_UPDATE = "STATE_UPDATE"  # Backward compatibility alias
+    STATE_ERROR = "STATE_ERROR"
+    CONTEXT_UPDATE = "CONTEXT_UPDATE"
+    CONTEXT_ERROR = "CONTEXT_ERROR"
+    PAUSE = "PAUSE"
+    RESUME = "RESUME"
+    CANCEL = "CANCEL"
+    RESET = "RESET"
 
 class BaseEvent(BaseModel):
-    """Base class for all AG-UI events."""
+    """Base class for all AG-UI events following official specification."""
     type: EventType
     timestamp: float = Field(default_factory=time.time)
     sequence_id: Optional[int] = None
     correlation_id: Optional[str] = None
     thread_id: str
     run_id: str
+    raw_event: Optional[Any] = None  # Support for official AG-UI spec
 
 class RunEvent(BaseEvent):
     """Base class for run-related events."""
     pass
 
+class AgentMetadata(BaseModel):
+    """Structured agent metadata for RunStartedEvent."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    version: Optional[str] = None
+    capabilities: Optional[List[str]] = None
+    start_time: Optional[float] = None
+    environment: Optional[Dict[str, Any]] = None
+    agent_type: Optional[str] = None
+    model_info: Optional[Dict[str, Any]] = None
+
+class AgentConfiguration(BaseModel):
+    """Structured configuration details for RunStartedEvent."""
+    llm_configs: Optional[Dict[str, Any]] = None
+    agent_configs: Optional[Dict[str, Any]] = None
+    runtime_settings: Optional[Dict[str, Any]] = None
+    tools_enabled: Optional[List[str]] = None
+    max_iterations: Optional[int] = None
+    timeout_settings: Optional[Dict[str, int]] = None
+
 class RunStartedEvent(RunEvent):
-    """Event indicating the start of an agent run."""
+    """Enhanced event indicating the start of an agent run.
+    
+    This implementation extends the official AG-UI RunStartedEvent specification
+    with additional metadata and configuration details for comprehensive run tracking.
+    
+    Official AG-UI spec requires: type, thread_id, run_id
+    Enhanced features: agent_metadata, configuration, performance tracking
+    """
     type: EventType = EventType.RUN_STARTED
-    agent_metadata: Optional[dict] = None
-    configuration: Optional[dict] = None
+    
+    # Enhanced metadata with structured schema
+    agent_metadata: Optional[AgentMetadata] = None
+    
+    # Enhanced configuration with structured schema  
+    configuration: Optional[AgentConfiguration] = None
+    
+    # Additional tracking fields
+    run_context: Optional[Dict[str, Any]] = None
+    expected_duration: Optional[float] = None
+    priority: Optional[str] = "normal"  # low, normal, high
+    
+    def __init__(self, **data):
+        """Initialize RunStartedEvent with enhanced validation and defaults."""
+        super().__init__(**data)
+        
+        # Auto-populate metadata if not provided
+        if self.agent_metadata is None:
+            self.agent_metadata = AgentMetadata()
+            
+        # Auto-populate configuration if not provided  
+        if self.configuration is None:
+            self.configuration = AgentConfiguration()
+            
+        # Set start time if not already set
+        if self.agent_metadata.start_time is None:
+            self.agent_metadata.start_time = self.timestamp
+    
+    def add_agent_capability(self, capability: str) -> None:
+        """Add a capability to the agent metadata."""
+        if self.agent_metadata.capabilities is None:
+            self.agent_metadata.capabilities = []
+        if capability not in self.agent_metadata.capabilities:
+            self.agent_metadata.capabilities.append(capability)
+    
+    def set_environment_info(self, key: str, value: Any) -> None:
+        """Set environment information in the agent metadata."""
+        if self.agent_metadata.environment is None:
+            self.agent_metadata.environment = {}
+        self.agent_metadata.environment[key] = value
+    
+    def add_llm_config(self, name: str, config: Dict[str, Any]) -> None:
+        """Add LLM configuration to the agent configuration."""
+        if self.configuration.llm_configs is None:
+            self.configuration.llm_configs = {}
+        self.configuration.llm_configs[name] = config
+    
+    def get_duration_since_start(self) -> Optional[float]:
+        """Get the duration since the agent run started."""
+        if self.agent_metadata and self.agent_metadata.start_time:
+            return time.time() - self.agent_metadata.start_time
+        return None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary with enhanced serialization."""
+        data = self.model_dump()
+        
+        # Add computed fields
+        duration = self.get_duration_since_start()
+        if duration is not None:
+            data["computed_duration"] = duration
+            
+        return data
 
 class RunFinishedEvent(RunEvent):
     """Event indicating the completion of an agent run."""
@@ -1310,35 +1413,71 @@ async def agent_endpoint(input_data: RunAgentInput):
     async def event_generator() -> AsyncGenerator[str, None]:
         message_id = None
         try:
-            # Create enhanced run started event with metadata
+            # Create enhanced run started event with structured metadata
             run_started = RunStartedEvent(
-                type=EventType.RUN_STARTED,
                 thread_id=input_data.thread_id,
                 run_id=input_data.run_id,
-                agent_metadata={
-                    "name": orchestrator.name,
-                    "description": orchestrator.description,
-                    "capabilities": orchestrator.capabilities,
-                    "start_time": start_time,
-                    "environment": {
-                        "python_version": sys.version,
-                        "platform": sys.platform,
-                        "hostname": socket.gethostname()
-                    }
-                },
-                configuration={
-                    "researcher_config": {
-                        "endpoint": orchestrator.researcher.llm_config.endpoint,
-                        "is_local": orchestrator.researcher.llm_config.is_local,
-                        "model": orchestrator.researcher.llm_config.model
-                    },
-                    "writer_config": {
-                        "endpoint": orchestrator.writer.llm_config.endpoint,
-                        "is_local": orchestrator.writer.llm_config.is_local,
-                        "model": orchestrator.writer.llm_config.model
-                    }
-                }
+                priority="normal",
+                expected_duration=30.0  # Estimated 30 seconds for typical requests
             )
+            
+            # Set agent metadata using the new structured approach
+            run_started.agent_metadata.name = orchestrator.name
+            run_started.agent_metadata.description = orchestrator.description
+            run_started.agent_metadata.capabilities = orchestrator.capabilities.copy()
+            run_started.agent_metadata.agent_type = "orchestrator"
+            run_started.agent_metadata.version = "1.0.0"
+            
+            # Add environment information using the helper method
+            run_started.set_environment_info("python_version", sys.version)
+            run_started.set_environment_info("platform", sys.platform)
+            run_started.set_environment_info("hostname", socket.gethostname())
+            run_started.set_environment_info("memory_usage", psutil.Process().memory_info().rss / 1024 / 1024)
+            
+            # Add LLM configurations using the helper method
+            run_started.add_llm_config("researcher", {
+                "endpoint": orchestrator.researcher.llm_config.endpoint,
+                "is_local": orchestrator.researcher.llm_config.is_local,
+                "model": orchestrator.researcher.llm_config.model,
+                "role": "research_specialist"
+            })
+            
+            run_started.add_llm_config("writer", {
+                "endpoint": orchestrator.writer.llm_config.endpoint,
+                "is_local": orchestrator.writer.llm_config.is_local,
+                "model": orchestrator.writer.llm_config.model,
+                "role": "code_generator"
+            })
+            
+            # Set runtime configuration
+            run_started.configuration.runtime_settings = {
+                "max_retries": 3,
+                "timeout_per_agent": 30,
+                "enable_research_phase": True,
+                "enable_validation": True
+            }
+            
+            run_started.configuration.tools_enabled = ["web_search", "code_generation", "validation"]
+            run_started.configuration.max_iterations = 5
+            run_started.configuration.timeout_settings = {
+                "total_timeout": 120,
+                "agent_timeout": 30,
+                "llm_timeout": 20
+            }
+            
+            # Add capabilities for better tracking
+            run_started.add_agent_capability("multi_agent_coordination")
+            run_started.add_agent_capability("research_synthesis")
+            run_started.add_agent_capability("code_generation")
+            run_started.add_agent_capability("validation")
+            
+            # Set run context
+            run_started.run_context = {
+                "request_type": "code_generation",
+                "user_message_length": len(input_data.messages[-1].content) if input_data.messages else 0,
+                "session_id": input_data.thread_id,
+                "start_timestamp": start_time
+            }
             
             # Validate and prepare the event
             is_valid, error_msg = event_manager.validate_event(run_started)
@@ -1346,7 +1485,9 @@ async def agent_endpoint(input_data: RunAgentInput):
                 raise ValueError(f"Invalid RunStartedEvent: {error_msg}")
             run_started = event_manager.prepare_event(run_started)
             
-            logger.info("Sending RUN_STARTED event")
+            logger.info("Sending enhanced RUN_STARTED event with structured metadata")
+            logger.debug(f"Agent capabilities: {run_started.agent_metadata.capabilities}")
+            logger.debug(f"LLM configs: {list(run_started.configuration.llm_configs.keys()) if run_started.configuration.llm_configs else 'None'}")
             yield format_sse_event(run_started)
 
             # Generate a message ID for the assistant's response
@@ -1386,6 +1527,7 @@ async def agent_endpoint(input_data: RunAgentInput):
                 content_event = TextMessageContentEvent(
                     type=EventType.TEXT_MESSAGE_CONTENT,
                     message_id=message_id,
+                    role="assistant",
                     delta=response + timing_info,
                     thread_id=input_data.thread_id,
                     run_id=input_data.run_id,
@@ -1419,7 +1561,10 @@ async def agent_endpoint(input_data: RunAgentInput):
                 logger.info("Sending TEXT_MESSAGE_END event")
                 yield format_sse_event(text_end)
 
-                # Send run finished event with performance metrics
+                # Send run finished event with enhanced performance metrics
+                actual_duration = run_started.get_duration_since_start()
+                expected_vs_actual = actual_duration / run_started.expected_duration if run_started.expected_duration else None
+                
                 run_finished = RunFinishedEvent(
                     type=EventType.RUN_FINISHED,
                     thread_id=input_data.thread_id,
@@ -1427,9 +1572,32 @@ async def agent_endpoint(input_data: RunAgentInput):
                     correlation_id=run_started.correlation_id,
                     completion_status="success",
                     performance_metrics={
+                        # Timing metrics
                         "total_time": elapsed_time,
+                        "actual_duration": actual_duration,
+                        "expected_duration": run_started.expected_duration,
+                        "duration_variance": expected_vs_actual,
+                        "start_timestamp": start_time,
+                        "end_timestamp": time.time(),
+                        
+                        # Response metrics
                         "message_length": len(response),
-                        "memory_usage": psutil.Process().memory_info().rss / 1024 / 1024  # MB
+                        "response_words": len(response.split()),
+                        "message_quality_score": min(len(response) / 100, 10.0),  # Simple quality heuristic
+                        
+                        # System metrics
+                        "memory_usage_mb": psutil.Process().memory_info().rss / 1024 / 1024,
+                        "cpu_percent": psutil.Process().cpu_percent(),
+                        
+                        # Agent utilization
+                        "agents_used": ["orchestrator", "researcher", "writer"],
+                        "capabilities_utilized": run_started.agent_metadata.capabilities if run_started.agent_metadata else [],
+                        "tools_used": run_started.configuration.tools_enabled if run_started.configuration else [],
+                        
+                        # Performance classification
+                        "performance_tier": "fast" if elapsed_time < 10 else "normal" if elapsed_time < 30 else "slow",
+                        "success_rate": 1.0,
+                        "error_count": 0
                     }
                 )
                 
@@ -1449,6 +1617,7 @@ async def agent_endpoint(input_data: RunAgentInput):
                 error_event = TextMessageContentEvent(
                     type=EventType.TEXT_MESSAGE_CONTENT,
                     message_id=message_id,
+                    role="assistant",
                     delta=error_message,
                     thread_id=input_data.thread_id,
                     run_id=input_data.run_id,
@@ -1485,12 +1654,35 @@ async def agent_endpoint(input_data: RunAgentInput):
                     type=EventType.RUN_FINISHED,
                     thread_id=input_data.thread_id,
                     run_id=input_data.run_id,
-                    correlation_id=run_started.correlation_id,
+                    correlation_id=run_started.correlation_id if 'run_started' in locals() else None,
                     completion_status="error",
                     performance_metrics={
+                        # Timing metrics
                         "total_time": elapsed_time,
+                        "actual_duration": run_started.get_duration_since_start() if 'run_started' in locals() else elapsed_time,
+                        "expected_duration": run_started.expected_duration if 'run_started' in locals() and run_started.expected_duration else None,
+                        "start_timestamp": start_time,
+                        "end_timestamp": time.time(),
+                        
+                        # Error tracking
                         "error_type": type(e).__name__,
-                        "memory_usage": psutil.Process().memory_info().rss / 1024 / 1024  # MB
+                        "error_message": str(e),
+                        "error_occurred_at": elapsed_time,
+                        "error_location": "event_generator",
+                        
+                        # System metrics
+                        "memory_usage_mb": psutil.Process().memory_info().rss / 1024 / 1024,
+                        "cpu_percent": psutil.Process().cpu_percent(),
+                        
+                        # Agent utilization (minimal)
+                        "agents_used": [],  # No agents were successfully initialized
+                        "capabilities_utilized": [],
+                        
+                        # Performance classification
+                        "performance_tier": "critical_error",
+                        "success_rate": 0.0,
+                        "error_count": 1,
+                        "partial_completion": False  # Generator error means no real processing occurred
                     }
                 )
                 
@@ -1514,6 +1706,7 @@ async def agent_endpoint(input_data: RunAgentInput):
                     error_event = TextMessageContentEvent(
                         type=EventType.TEXT_MESSAGE_CONTENT,
                         message_id=message_id,
+                        role="assistant",
                         delta=error_message,
                         thread_id=input_data.thread_id,
                         run_id=input_data.run_id,
