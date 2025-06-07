@@ -203,7 +203,7 @@ The code has been validated for safety and meets all requirements.
 Inference completed in 55.13 seconds
 
 # Notes
-It is like the case that my instructions to not write code (I was testing to see if this was the case)
+It is likely the case that my instructions to not write code (I was testing to see if this was the case)
 are overridden by the fact that the python code really focuses on code generation as a key feature.  That's ok.  What we see here is a great example of it generating useful code that I can use.  Notice
 that this code was generated on my local machine using =mimo-vl-7b-rl@q8_k_xl.  It took less than
 one minute for it to reason through the problem and provide the code.  
