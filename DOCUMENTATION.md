@@ -11,15 +11,16 @@ The Agent User Interaction (AG_UI) Protocol provides a standardized way for agen
    - Uses Server-Sent Events (SSE) for real-time communication
    - Implements the AG_UI event hierarchy from the protocol
    - Supports streaming responses with proper event sequencing
-   - Demonstrates proper event encoding using `EventEncoder`
+   - Features enhanced events with structured metadata and performance tracking
 
 2. **Event Types**
-   - `RUN_STARTED`: Signals the beginning of an agent run
-   - `RUN_FINISHED`: Signals the completion of an agent run
+   - `RUN_STARTED`: Signals the beginning of an agent run with enhanced metadata
+   - `RUN_FINISHED`: Signals the completion of an agent run with performance metrics
    - `TEXT_MESSAGE_START`: Indicates the start of a text message
    - `TEXT_MESSAGE_CONTENT`: Contains the actual message content
    - `TEXT_MESSAGE_END`: Signals the end of a text message
    - `RUN_ERROR`: Handles error conditions during execution
+   - Enhanced events with correlation tracking and sequence validation
 
 3. **Message Flow**
    ```mermaid
@@ -27,470 +28,434 @@ The Agent User Interaction (AG_UI) Protocol provides a standardized way for agen
        participant U as User
        participant F as Frontend
        participant S as Server
-       participant A as AG_UI Protocol
-       participant G as Agent System
+       participant O as Orchestrator
+       participant P as PromptWriter
+       participant R as Researcher
+       participant W as Writer
+       participant V as Validator
 
        U->>F: Send Request
        F->>S: POST /awp
-       S->>A: Initialize Event Stream
-       A->>G: Process Request
-       G-->>A: Generate Events
-       A-->>S: Stream Events
-       S-->>F: SSE Response
-       F-->>U: Update UI
+       S->>O: Process Request
+       O->>P: Detect Language
+       P-->>O: Language Identified
+       O->>R: Research Requirements
+       R-->>O: Research Results
+       O->>W: Generate Code
+       W->>V: Validate Code
+       V-->>W: Validation Results
+       W-->>O: Generated Code
+       O-->>S: Response
+       S-->>F: SSE Events
+       F-->>U: Display Result
    ```
 
 4. **Protocol Implementation**
    - Uses FastAPI for the web server
    - Implements streaming responses using `StreamingResponse`
-   - Uses `EventEncoder` for proper event formatting
-   - Manages message IDs for tracking conversations
-   - Provides error handling and recovery mechanisms
-   - Demonstrates proper event sequencing
+   - Uses structured event classes with Pydantic models
+   - Manages message IDs and correlation IDs for tracking conversations
+   - Provides comprehensive error handling and recovery mechanisms
+   - Demonstrates proper event sequencing with EventManager
 
 5. **Key Features**
    - Real-time streaming of agent responses
-   - Structured event-based communication
-   - Support for multiple message types
-   - Error handling and recovery
-   - Thread and run tracking
-   - State management
-   - Proper event encoding and decoding
+   - Structured event-based communication with enhanced metadata
+   - Support for multiple message types and validation
+   - Advanced error handling and recovery
+   - Thread and run tracking with performance metrics
+   - State management with correlation tracking
+   - Multi-agent coordination system
+   - Language-specific code generation and validation
 
-6. **Integration Points**
-   - Frontend: Receives and processes SSE events
-   - Backend: Generates and streams events
-   - Agent System: Produces content for events
-   - Error Handling: Manages and reports issues
-   - Event Encoder: Formats events according to protocol
+## System Architecture
 
-### Event Processing Flow
-1. User request received at `/awp` endpoint
-2. Generate unique message ID using UUID
-3. Initialize event stream with `RUN_STARTED`
-4. Send `TEXT_MESSAGE_START` event
-5. Process request through agent system
-6. Stream `TEXT_MESSAGE_CONTENT` events
-7. Send `TEXT_MESSAGE_END` event
-8. Send `RUN_FINISHED` event
-9. Handle any errors with `RUN_ERROR` event
+The application implements a sophisticated multi-agent system with the following components:
 
-### Error Handling
-- Graceful error recovery using AG_UI error events
-- Error event propagation through the event stream
-- Stream maintenance during errors
-- User feedback for issues
-- Proper error event formatting
-
-## Benefits of Using AG_UI
-
-### 1. Standardized Communication
-- Provides a consistent protocol for agent-user interactions
-- Eliminates the need for custom communication protocols
-- Ensures compatibility across different agent implementations
-- Simplifies integration with various frontend frameworks
-
-### 2. Real-Time Interaction
-- Enables streaming responses for immediate user feedback
-- Supports token-by-token output for dynamic UIs
-- Maintains low-latency communication
-- Allows for interactive user experiences
-
-### 3. Flexible Integration
-- Works with any transport layer (HTTP, SSE, WebSockets)
-- Supports multiple agent frameworks
-- Enables easy switching between different LLM providers
-- Provides framework-agnostic frontend contracts
-
-### 4. Enhanced Development Experience
-- Reduces development time by eliminating custom adapters
-- Provides clear event schemas for better debugging
-- Enables easier testing and replay of agent interactions
-- Simplifies maintenance and updates
-
-### 5. Enterprise Readiness
-- Built-in support for CORS and authentication
-- Comprehensive error handling and recovery
-- Support for audit logging and monitoring
-- Scalable architecture for production deployments
-
-### 6. State Management
-- Efficient handling of dynamic content updates
-- Support for state diffs to minimize bandwidth
-- Maintains context across multiple interactions
-- Enables complex multi-turn conversations
-
-### 7. Tool Integration
-- Structured interface for function execution
-- Support for tool calls and results
-- Enables agent-initiated actions
-- Maintains tool execution context
-
-### 8. Security and Control
-- Built-in security features for enterprise use
-- Support for authentication and authorization
-- Control primitives for managing user interactions
-- Safe handling of concurrent operations
-
-## Overview
-This application implements the Agent User Interaction Protocol (AG-UI) for generating code in multiple programming languages. It features a multi-agent system with robust code generation, safety validation, and language detection capabilities.
-
-## System Components
-
+### Agent System
 ```mermaid
 graph TD
-    A[Frontend] -->|HTTP Request| B[FastAPI Server]
-    B -->|Process| C[Orchestrator Agent]
-    C -->|Research| D[Researcher Agent]
-    C -->|Generate Code| E[Writer Agent]
-    E -->|Validate| F[Code Safety]
-    E -->|Check| G[Module Dependencies]
-    E -->|Detect| H[Language Detection]
-    D -->|API Call| I[LLM API]
+    A[User Request] -->|HTTP POST| B[FastAPI Server]
+    B -->|Initialize| C[EventManager]
+    B -->|Process| D[Orchestrator Agent]
+    D -->|Detect Language| E[PromptWriter Agent]
+    D -->|Research| F[Researcher Agent]
+    D -->|Generate Code| G[Writer Agent]
+    G -->|Validate| H[Language-Specific Validators]
+    F -->|API Call| I[LLM Endpoint]
+    G -->|API Call| I
     E -->|API Call| I
-    I -->|Response| D
+    I -->|Response| F
+    I -->|Response| G
     I -->|Response| E
+    C -->|Stream Events| J[SSE Response]
+    J -->|Display| K[Frontend]
 ```
 
-## Configuration
+### Agent Components
 
-### Environment Setup
-- Requires `.env` file in the application root
-- Environment variables for LLM configuration:
-  - `LLM_API_KEY`: API key for cloud endpoints
-  - `LLM_ENDPOINT`: API endpoint URL
-  - `LLM_MODEL`: Model name to use
-  - `LLM_IS_LOCAL`: Boolean flag for local endpoint
+#### 1. Orchestrator Agent
+- **Purpose**: Coordinates between all agents and manages workflow
+- **Capabilities**: ["coordination", "workflow_management"]
+- **Functions**:
+  - Routes simple requests directly to Writer
+  - Manages complex requests through research phase
+  - Handles message ID and correlation ID generation
+  - Manages SSE event streaming and error handling
 
-### LLM Configuration
-- Supports both local and cloud endpoints
-- Configurable timeout settings:
-  - Response timeout: 300 seconds
-  - Connect timeout: 10 seconds
-  - Read timeout: 600 seconds
-  - Write timeout: 10 seconds
-- Connection limits:
-  - Max keepalive connections: 5
-  - Max total connections: 10
-- Retry logic: 3 attempts for failed requests
+#### 2. PromptWriter Agent  
+- **Purpose**: Generates language-specific prompts and detects programming languages
+- **Capabilities**: ["prompt_generation", "language_detection"]
+- **Language Detection Patterns**:
+  - **VB.NET**: `MessageBox.Show`, `Public Class`, `End Class`, `End Sub`
+  - **Python**: `def`, `import`, `print(`, `if.*:`
+  - **JavaScript**: `function`, `const`, `let`, `console.log`
+  - **C#**: `public class`, `Console.WriteLine`, `using System`
+- **Functions**:
+  - `identify_language()`: Detects programming language from input
+  - `generate_research_prompt()`: Creates research prompts
+  - `generate_code_prompt()`: Creates code generation prompts
 
-## Enhanced Features
+#### 3. Researcher Agent
+- **Purpose**: Researches best practices and patterns for programming languages
+- **Capabilities**: ["research", "analysis"]
+- **Functions**:
+  - Provides language-specific best practices
+  - Analyzes requirements and suggests patterns
+  - Returns structured JSON with summary, critical points, and examples
+  - Supports all detected programming languages
 
-### Code Generation
-- **Smart Code Templates**: Pre-defined templates for common requests
-- **Dynamic Code Generation**: Custom code generation for specific requirements
-- **Markdown Formatting**: Properly formatted code blocks with language specification
-- **Multi-line Support**: Preserves code formatting and indentation
-- **Main Guard**: Includes `if __name__ == "__main__":` pattern
-- **Error Handling**: Comprehensive try-except blocks
-- **Language-Specific Features**: 
-  - VB.NET: MessageBox.Show integration, XML documentation
-  - Python: AST validation, module imports
-  - JavaScript: ES6+ features, module system
-  - C#: .NET framework integration
+#### 4. Writer Agent
+- **Purpose**: Generates and validates code based on requirements
+- **Capabilities**: ["code_generation", "validation"]
+- **Functions**:
+  - Generates safe and idiomatic code
+  - Validates code safety using language-specific validators
+  - Checks module dependencies and requirements
+  - Implements retry logic for LLM API calls
+  - Special handling for VB.NET code generation
 
-### Safety Features
-- **AST Validation**: Syntax validation using Python's Abstract Syntax Tree
-- **Dangerous Operation Detection**: Blocks potentially harmful code patterns
-- **Module Dependency Checking**: Verifies required modules are available
-- **Requirement Validation**: Ensures generated code meets user requirements
-- **Timeout Protection**: Prevents hanging on long-running operations
-- **Connection Limits**: Prevents resource exhaustion
-- **Language-Specific Validation**:
-  - VB.NET: Syntax patterns, MessageBox usage
-  - Python: AST parsing, import validation
-  - JavaScript: Syntax checking
-  - C#: Framework validation
+### Code Validation System
 
-### Language Detection
-- **Multi-language Support**: Detects VB.NET, Python, JavaScript, and C#
-- **Pattern Recognition**: Identifies language based on syntax patterns
-- **Code Block Extraction**: Properly extracts code from markdown blocks
-- **Language Specification**: Maintains language context in responses
-- **VB.NET Detection**: 
-  - MessageBox.Show patterns
-  - Public/Private class declarations
-  - End Class/Sub patterns
-- **Python Detection**:
-  - def/import statements
-  - Python-specific syntax
-- **JavaScript Detection**:
-  - function declarations
-  - ES6+ features
-- **C# Detection**:
-  - class declarations
-  - using statements
+#### Base CodeValidator
+- Generic code safety validation
+- Detects dangerous patterns across languages (os.system, eval, exec, etc.)
+- Path traversal and security checks
 
-## Message Flow
+#### Language-Specific Validators
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant F as Frontend
-    participant S as Server
-    participant O as Orchestrator
-    participant W as Writer
-    participant V as Validator
-    participant L as LLM API
+**PythonValidator**:
+- AST (Abstract Syntax Tree) validation
+- Python-specific syntax checking
+- Import validation
 
-    U->>F: Send Message
-    F->>S: POST /awp
-    S->>O: Process Message
-    O->>W: Generate Code
-    W->>L: API Request
-    L-->>W: API Response
-    W->>V: Validate Code
-    V-->>W: Validation Result
-    W-->>O: Generated Code
-    O-->>S: Response
-    S-->>F: SSE Events
-    F-->>U: Display Result
+**VBValidator**: 
+- VB.NET syntax pattern validation
+- Required structure checking (Public Class, End Class)
+- VB.NET-specific safety checks
+
+## Configuration System
+
+The application uses a sophisticated configuration system with environment variables:
+
+### Environment Variables
+
+#### Core Configuration
+```bash
+# API Keys (only required for cloud endpoints)
+OPENAI_API_KEY=your_openai_key_here
+
+# Researcher Agent Configuration
+RESEARCHER_LLM_ENDPOINT=http://localhost:1234/v1/chat/completions
+RESEARCHER_LLM_IS_LOCAL=true
+RESEARCHER_LLM_MODEL=mimo-vl-7b-rl
+RESEARCHER_LLM_TEMPERATURE=0.7
+RESEARCHER_LLM_MAX_TOKENS=2000
+RESEARCHER_LLM_TIMEOUT=500
+
+# Writer Agent Configuration  
+WRITER_LLM_ENDPOINT=http://localhost:1234/v1/chat/completions
+WRITER_LLM_IS_LOCAL=true
+WRITER_LLM_MODEL=mimo-vl-7b-rl
+WRITER_LLM_TEMPERATURE=0.4
+WRITER_LLM_MAX_TOKENS=2000
+WRITER_LLM_TIMEOUT=500
+
+# PromptWriter Agent Configuration
+PROMPT_WRITER_LLM_ENDPOINT=http://localhost:1234/v1/chat/completions
+PROMPT_WRITER_LLM_IS_LOCAL=true
+PROMPT_WRITER_LLM_MODEL=mimo-vl-7b-rl
+PROMPT_WRITER_LLM_TEMPERATURE=0.5
+PROMPT_WRITER_LLM_MAX_TOKENS=2000
+PROMPT_WRITER_LLM_TIMEOUT=500
 ```
 
-## Event Types
+### LLM Configuration Structure
 
-```mermaid
-stateDiagram-v2
-    [*] --> RUN_STARTED
-    RUN_STARTED --> TEXT_MESSAGE_START
-    TEXT_MESSAGE_START --> TEXT_MESSAGE_CONTENT
-    TEXT_MESSAGE_CONTENT --> TEXT_MESSAGE_END
-    TEXT_MESSAGE_END --> RUN_FINISHED
-    RUN_FINISHED --> [*]
-    TEXT_MESSAGE_CONTENT --> ERROR_EVENT
-    ERROR_EVENT --> TEXT_MESSAGE_END
+```python
+class LLMConfig(BaseModel):
+    endpoint: str                    # API endpoint URL
+    api_key: Optional[str] = None   # API key (None for local)
+    model: str                      # Model name
+    temperature: float = 0.7        # Response randomness
+    max_tokens: int = 2000         # Maximum response tokens
+    timeout: int = 30              # Request timeout
+    headers: Dict[str, str] = {}   # Additional headers
+    is_local: bool = False         # Local vs cloud endpoint
 ```
 
-## Error Handling
+### Configuration Features
+- **Automatic Endpoint Detection**: Sets appropriate endpoints based on `is_local` flag
+- **Environment Variable Validation**: Comprehensive logging and validation
+- **Default Value Handling**: Sensible defaults for missing configurations
+- **Multi-Agent Support**: Separate configurations for each agent type
+- **Timeout Management**: Configurable timeouts for different operations
 
-```mermaid
-graph TD
-    A[Request] --> B{Valid?}
-    B -->|Yes| C[Process]
-    B -->|No| D[Error Response]
-    C --> E{Code Safe?}
-    E -->|Yes| F[Generate Response]
-    E -->|No| G[Safety Error]
-    F --> H{Modules Available?}
-    H -->|Yes| I[Send Response]
-    H -->|No| J[Dependency Error]
-    F --> K{API Timeout?}
-    K -->|Yes| L[Timeout Error]
-    K -->|No| M[Continue]
-    M --> N{API Error?}
-    N -->|Yes| O[API Error]
-    N -->|No| P[Success]
+## Enhanced Event System
+
+### Event Hierarchy
+```python
+BaseEvent
+├── RunEvent
+│   ├── RunStartedEvent (Enhanced with metadata)
+│   ├── RunFinishedEvent (With performance metrics)
+│   └── RunErrorEvent
+├── MessageEvent
+│   ├── TextMessageStartEvent
+│   ├── TextMessageContentEvent
+│   ├── TextMessageEndEvent
+│   └── TextMessageErrorEvent
+├── ToolEvent
+├── StateEvent
+├── ContextEvent
+└── ControlEvent
 ```
 
-## Frontend Components
-- **Message Display**: Real-time message updates
-- **Code Formatting**: Syntax highlighting for code blocks
-- **Error Handling**: Clear error message display
-- **Streaming Support**: Server-Sent Events (SSE) implementation
+### Enhanced RunStartedEvent Features
+- **Structured Agent Metadata**: Name, description, version, capabilities
+- **Environment Information**: System details, memory usage, platform info
+- **LLM Configuration Tracking**: Endpoint details for each agent
+- **Performance Tracking**: Expected duration, start time, priority
+- **Runtime Settings**: Timeout configurations, tool availability
 
-## Backend Components
+### Event Management
+- **EventManager Class**: Validates, sequences, and correlates events
+- **Sequence Validation**: Ensures proper event ordering
+- **Correlation Tracking**: Links related events across the workflow
+- **Error Recovery**: Graceful handling of validation failures
 
-### Orchestrator Agent
-- Coordinates between agents
-- Manages workflow
-- Routes simple requests directly to Writer
-- Handles complex requests with research phase
-- Manages message ID generation
-- Handles SSE event streaming
+### Performance Metrics in RunFinishedEvent
+```python
+performance_metrics = {
+    # Timing metrics
+    "total_time": elapsed_time,
+    "actual_duration": duration_since_start,
+    "expected_duration": estimated_duration,
+    "duration_variance": actual_vs_expected_ratio,
+    
+    # Response metrics  
+    "message_length": response_character_count,
+    "response_words": word_count,
+    "message_quality_score": quality_heuristic,
+    
+    # System metrics
+    "memory_usage_mb": memory_consumption,
+    "cpu_percent": cpu_utilization,
+    
+    # Agent utilization
+    "agents_used": ["orchestrator", "researcher", "writer"],
+    "capabilities_utilized": capability_list,
+    "tools_used": enabled_tools,
+    
+    # Performance classification
+    "performance_tier": "fast|normal|slow",
+    "success_rate": completion_percentage,
+    "error_count": error_occurrences
+}
+```
 
-### Researcher Agent
-- Provides best practices
-- Suggests patterns
-- Analyzes requirements
-- Supports code generation decisions
-- Manages LLM API interactions
-- Handles API timeouts and retries
-- Language-agnostic research capabilities
+## Request and Response Flow
 
-### Writer Agent
-- Generates code based on requirements
-- Validates code safety
-- Checks module dependencies
-- Detects programming language
-- Formats code with markdown
-- Implements retry logic
-- Manages LLM API interactions
-- Handles API timeouts and retries
-- Specialized handling for VB.NET code generation
-
-### PromptWriter Agent
-- Generates language-specific prompts
-- Detects programming language from input
-- Creates appropriate research prompts
-- Generates code generation prompts
-- Supports multiple languages:
-  - VB.NET
-  - Python
-  - JavaScript
-  - C#
-
-### Code Validation
-- Base `CodeValidator` class for common validation
-- Language-specific validators:
-  - `VBValidator`: VB.NET specific validation
-  - `PythonValidator`: Python specific validation
-  - Extensible for other languages
-- Safety checks for each language
-- Syntax pattern validation
-- Framework-specific validation
-
-## Event Flow
-1. User sends message
-2. Server receives request
-3. Generate unique message ID
-4. Send RUN_STARTED event
-5. Send TEXT_MESSAGE_START event
-6. Orchestrator processes message
-7. Writer generates and validates code
-8. Send TEXT_MESSAGE_CONTENT events
-9. Send TEXT_MESSAGE_END event
-10. Send RUN_FINISHED event
-11. Frontend displays formatted result
-
-## Request Format
+### 1. Request Format
 ```json
 {
-    "thread_id": "uuid",
-    "run_id": "uuid",
+    "thread_id": "uuid-string",
+    "run_id": "uuid-string", 
     "messages": [
         {
             "role": "user",
-            "content": "message content"
+            "content": "Generate a VB.NET MessageBox example"
         }
     ]
 }
 ```
 
-## Error Handling
-- Syntax validation errors
-- Safety check failures
-- Missing module dependencies
-- Invalid language detection
-- Stream processing errors
-- LLM API timeouts
-- LLM API connection errors
-- Environment configuration errors
-- Invalid message format errors
-- Language-specific validation errors
+### 2. Event Sequence
+1. **RUN_STARTED**: Enhanced event with agent metadata and configuration
+2. **TEXT_MESSAGE_START**: Begin response message
+3. **Agent Processing**:
+   - Language detection via PromptWriter
+   - Research phase (for complex requests)
+   - Code generation with validation
+4. **TEXT_MESSAGE_CONTENT**: Stream generated response
+5. **TEXT_MESSAGE_END**: Complete message
+6. **RUN_FINISHED**: Performance metrics and completion status
+
+### 3. Error Handling
+- **Graceful Degradation**: Continue processing despite individual agent failures
+- **Comprehensive Error Events**: Detailed error information with context
+- **Recovery Mechanisms**: Retry logic for LLM API timeouts
+- **Stream Maintenance**: Proper event sequences even during errors
+
+## Benefits of Using AG_UI
+
+### 1. Standardized Multi-Agent Communication
+- Consistent protocol across different agent types
+- Structured event correlation for complex workflows
+- Enhanced metadata for better debugging and monitoring
+
+### 2. Real-Time Multi-Modal Interaction
+- Streaming responses with performance tracking
+- Language-specific code generation
+- Dynamic validation and error correction
+
+### 3. Enterprise-Ready Architecture
+- Comprehensive configuration management
+- Performance monitoring and metrics
+- Scalable multi-agent coordination
+- Robust error handling and recovery
+
+### 4. Enhanced Development Experience
+- Language detection and appropriate prompt generation
+- Structured research integration
+- Code validation with safety checks
+- Clear event tracing and debugging support
+
+## Language Support
+
+### Currently Supported Languages
+1. **VB.NET**
+   - MessageBox integration
+   - XML documentation
+   - VB.NET-specific syntax validation
+   - Framework 4.7.2 compatibility
+
+2. **Python** 
+   - AST validation
+   - Module import checking
+   - Python-specific safety patterns
+
+3. **JavaScript**
+   - ES6+ feature support
+   - Module system integration
+   - Modern JavaScript patterns
+
+4. **C#**
+   - .NET framework integration
+   - Using statement management
+   - XML documentation support
+
+### Language Detection Process
+1. **Explicit Keywords**: Direct language mentions in user input
+2. **Syntax Pattern Matching**: Language-specific code patterns
+3. **Context Analysis**: Code structure and naming conventions
+4. **Default Handling**: Graceful fallback for unknown languages
 
 ## Setup Instructions
-1. Install dependencies: `pip install -r requirements.txt`
-2. Create `.env` file with required configuration
-3. Start server: `python main.py`
-4. Access frontend: `http://localhost:8000`
 
-## Future Improvements
-- Enhanced language detection
-- Additional code templates
-- Extended safety checks
-- Improved error messages
-- Better code formatting
-- Enhanced timeout handling
-- Improved retry logic
-- Better environment validation
-- Additional language support
-- Enhanced VB.NET features
+### 1. Environment Setup
+```bash
+# Clone the repository
+git clone <repository-url>
+cd AG_UI_Test
 
-## Contributing
-1. Fork the repository
-2. Create feature branch
-3. Commit changes
-4. Push to branch
-5. Create Pull Request
+# Install Python dependencies
+pip install -r requirements.txt
 
-## License
-MIT License - See LICENSE file for details
-
-## AG-UI Standard Event Types
-
-### Core Events
-1. **Run Events**
-   - `RUN_STARTED`: Initializes a new agent run
-   - `RUN_FINISHED`: Signals completion of an agent run
-   - `RUN_ERROR`: Indicates an error during execution
-
-2. **Message Events**
-   - `TEXT_MESSAGE_START`: Begins a new text message
-   - `TEXT_MESSAGE_CONTENT`: Contains message content
-   - `TEXT_MESSAGE_END`: Signals end of message
-   - `TEXT_MESSAGE_ERROR`: Indicates message processing error
-
-3. **Tool Events**
-   - `TOOL_CALL_STARTED`: Begins a tool execution
-   - `TOOL_CALL_FINISHED`: Signals tool completion
-   - `TOOL_CALL_ERROR`: Indicates tool execution error
-
-4. **State Events**
-   - `STATE_UPDATE`: Signals state change
-   - `STATE_ERROR`: Indicates state update error
-   - `CONTEXT_UPDATE`: Signals context change
-   - `CONTEXT_ERROR`: Indicates context update error
-
-5. **Control Events**
-   - `PAUSE`: Signals pause request
-   - `RESUME`: Signals resume request
-   - `CANCEL`: Signals cancellation request
-   - `RESET`: Signals reset request
-
-### Event Properties
-Each event type includes:
-- `type`: Event type identifier
-- `timestamp`: Event creation time
-- `sequence_id`: Event sequence number
-- `correlation_id`: Related events identifier
-- `thread_id`: Conversation thread identifier
-- `run_id`: Agent run identifier
-- `message_id`: Message identifier (for message events)
-- `error_details`: Error information (for error events)
-
-### Event Flow
-```mermaid
-stateDiagram-v2
-    [*] --> RUN_STARTED
-    RUN_STARTED --> TEXT_MESSAGE_START
-    TEXT_MESSAGE_START --> TEXT_MESSAGE_CONTENT
-    TEXT_MESSAGE_CONTENT --> TEXT_MESSAGE_END
-    TEXT_MESSAGE_END --> RUN_FINISHED
-    RUN_FINISHED --> [*]
-    
-    TEXT_MESSAGE_CONTENT --> TOOL_CALL_STARTED
-    TOOL_CALL_STARTED --> TOOL_CALL_FINISHED
-    TOOL_CALL_FINISHED --> TEXT_MESSAGE_CONTENT
-    
-    TEXT_MESSAGE_CONTENT --> STATE_UPDATE
-    STATE_UPDATE --> TEXT_MESSAGE_CONTENT
-    
-    TEXT_MESSAGE_CONTENT --> ERROR_EVENT
-    ERROR_EVENT --> TEXT_MESSAGE_END
+# Create .env file with configuration
+cp .env.example .env
+# Edit .env with your LLM endpoints and settings
 ```
 
-### Event Usage Guidelines
-1. **Event Sequencing**
-   - Events must maintain proper sequence order
-   - Each event must have a unique sequence_id
-   - Related events must share correlation_id
+### 2. Configuration
+- Set up local LLM endpoint (e.g., LM Studio on port 1234)
+- Configure environment variables in `.env`
+- Verify LLM connectivity and model availability
 
-2. **Error Handling**
-   - All errors must be reported via appropriate error events
-   - Error events must include detailed error information
-   - Error events must maintain proper event sequence
+### 3. Running the Application
+```bash
+# Start the FastAPI server
+python main.py
 
-3. **State Management**
-   - State updates must be atomic
-   - State changes must be reported via STATE_UPDATE
-   - State errors must be reported via STATE_ERROR
+# Access the application
+# Frontend: http://localhost:8000
+# API Documentation: http://localhost:8000/docs
+```
 
-4. **Tool Integration**
-   - Tool calls must be reported via TOOL_CALL events
-   - Tool errors must be reported via TOOL_CALL_ERROR
-   - Tool results must be reported via TOOL_CALL_FINISHED
+### 4. Testing
+```bash
+# Test with curl
+curl -X POST "http://localhost:8000/awp" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "thread_id": "test-123",
+    "run_id": "run-456", 
+    "messages": [{"role": "user", "content": "Create a VB.NET hello world"}]
+  }'
+```
 
-5. **Control Flow**
-   - Control events can interrupt normal flow
-   - Control events must be acknowledged
-   - Control events must maintain state consistency 
+## Error Handling and Troubleshooting
+
+### Common Issues
+1. **LLM Endpoint Connectivity**: Check endpoint URLs and local server status
+2. **Configuration Errors**: Verify environment variables and .env file
+3. **Timeout Issues**: Adjust timeout settings for your hardware
+4. **Model Compatibility**: Ensure models support required features
+
+### Debug Logging
+The application provides comprehensive debug logging:
+- Configuration validation
+- Agent initialization
+- Event processing and validation
+- LLM API interactions
+- Performance metrics
+
+### Monitoring
+- Real-time performance tracking in RunFinishedEvent
+- Memory and CPU utilization monitoring
+- Success/failure rate tracking
+- Response quality metrics
+
+## Future Enhancements
+
+### Planned Features
+1. **Additional Language Support**: Go, Rust, Java, TypeScript
+2. **Enhanced Validation**: More sophisticated safety checks
+3. **Performance Optimization**: Caching, parallel processing
+4. **UI Improvements**: Better code formatting, syntax highlighting
+5. **Advanced Analytics**: Usage patterns, performance trends
+
+### Architecture Improvements
+1. **Agent Plugins**: Extensible agent system
+2. **Distributed Processing**: Multi-node agent coordination
+3. **Enhanced Caching**: Intelligent response caching
+4. **Advanced Monitoring**: Comprehensive observability
+
+## Contributing
+
+### Development Guidelines
+1. Follow the existing agent pattern for new agents
+2. Implement proper validation for new languages
+3. Add comprehensive error handling
+4. Include performance metrics in new features
+5. Update documentation for any changes
+
+### Code Standards
+- Use Pydantic models for all data structures
+- Implement proper typing throughout
+- Add comprehensive logging
+- Follow the existing event pattern
+- Validate all inputs and outputs
+
+## License
+MIT License - See LICENSE file for details 
